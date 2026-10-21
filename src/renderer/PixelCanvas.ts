@@ -1,4 +1,4 @@
-import { getCosmeticById } from '../shared/catalog';
+import { getCosmeticById, getFurnitureColorOption } from '../shared/catalog';
 import {
   DeskDropInstance,
   InteractionActionType,
@@ -45,13 +45,14 @@ export interface PixelCanvasCallbacks {
   onKickVisitor?: (userId: string) => void;
   onMoveFurniture?: (instanceId: string, x: number) => void;
   onFlipFurniture?: (instanceId: string) => void;
+  onRemoveFurniture?: (instanceId: string) => void;
   onHoverStateChange?: (hoverLabel: string | null) => void;
 }
 
 export class PixelCanvasRenderer {
   public static readonly WIDTH = 360;
   public static readonly HEIGHT = 180;
-  public static readonly FLOOR_HEIGHT = 22;
+  public static readonly FLOOR_HEIGHT = 24;
   public static readonly FLOOR_Y = PixelCanvasRenderer.HEIGHT - PixelCanvasRenderer.FLOOR_HEIGHT;
 
   private canvas: HTMLCanvasElement;
@@ -62,6 +63,10 @@ export class PixelCanvasRenderer {
   private myUserId = '';
   private selectedTargetUserId: string | null = null;
   public editFurnitureMode = false;
+
+  // Zoom / Escala da Câmera (1.0x, 1.25x, 1.5x)
+  public zoomLevel = 1.2;
+  private cameraX = 180;
 
   private physics = new Map<string, LocalAvatarPhysics>();
   private seenSpawnFx = new Set<string>();
@@ -97,6 +102,27 @@ export class PixelCanvasRenderer {
 
   public setSelectedTarget(userId: string | null) {
     this.selectedTargetUserId = userId;
+  }
+
+  public cycleZoom(): number {
+    if (this.zoomLevel < 1.15) {
+      this.zoomLevel = 1.25;
+    } else if (this.zoomLevel < 1.4) {
+      this.zoomLevel = 1.5;
+    } else {
+      this.zoomLevel = 1.0;
+    }
+    return this.zoomLevel;
+  }
+
+  private getCameraViewport(): { viewLeft: number; viewTop: number; visW: number; visH: number } {
+    const W = PixelCanvasRenderer.WIDTH;
+    const H = PixelCanvasRenderer.HEIGHT;
+    const visW = W / this.zoomLevel;
+    const visH = H / this.zoomLevel;
+    const viewLeft = Math.max(0, Math.min(W - visW, this.cameraX - visW / 2));
+    const viewTop = Math.max(0, H - visH);
+    return { viewLeft, viewTop, visW, visH };
   }
 
   public toggleEditFurnitureMode(force?: boolean): boolean {
@@ -220,13 +246,29 @@ export class PixelCanvasRenderer {
     const rect = this.canvas.getBoundingClientRect();
     const scaleX = PixelCanvasRenderer.WIDTH / rect.width;
     const scaleY = PixelCanvasRenderer.HEIGHT / rect.height;
+    const rawX = (e.clientX - rect.left) * scaleX;
+    const rawY = (e.clientY - rect.top) * scaleY;
+    const { viewLeft, viewTop } = this.getCameraViewport();
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: viewLeft + rawX / this.zoomLevel,
+      y: viewTop + rawY / this.zoomLevel,
     };
   }
 
   private bindEvents() {
+    this.canvas.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          this.zoomLevel = Math.min(1.6, Number((this.zoomLevel + 0.12).toFixed(2)));
+        } else {
+          this.zoomLevel = Math.max(1.0, Number((this.zoomLevel - 0.12).toFixed(2)));
+        }
+      },
+      { passive: false }
+    );
+
     this.canvas.addEventListener('mousemove', (e) => {
       const { x, y } = this.getCanvasCoords(e);
 
@@ -266,18 +308,25 @@ export class PixelCanvasRenderer {
       const isMyRoom = this.room?.hostUserId === this.myUserId;
       if (!isMyRoom) return;
 
-      // If right-clicking a visitor avatar (and not in furniture edit mode), expel that visitor!
-      if (!this.editFurnitureMode && this.hoveredPlayerId && this.hoveredPlayerId !== this.myUserId) {
+      // 1. Se clicar com botão direito em um móvel da própria sala: remove (ou Shift+Direito vira)
+      if (this.hoveredFurnitureId) {
         e.preventDefault();
-        soundEngine.playTone(320, 0.12, 'sawtooth', 0.08, 180);
-        this.callbacks.onKickVisitor?.(this.hoveredPlayerId);
+        if (e.shiftKey) {
+          soundEngine.playTone(440, 0.08, 'triangle', 0.07, 660);
+          this.callbacks.onFlipFurniture?.(this.hoveredFurnitureId);
+        } else {
+          soundEngine.playTone(300, 0.1, 'sine', 0.08, 200);
+          this.callbacks.onRemoveFurniture?.(this.hoveredFurnitureId);
+          this.hoveredFurnitureId = null;
+        }
         return;
       }
 
-      if (this.hoveredFurnitureId) {
+      // 2. Se clicar com botão direito em um visitante: expulsa da sala
+      if (this.hoveredPlayerId && this.hoveredPlayerId !== this.myUserId) {
         e.preventDefault();
-        soundEngine.playTone(440, 0.08, 'triangle', 0.07, 660);
-        this.callbacks.onFlipFurniture?.(this.hoveredFurnitureId);
+        soundEngine.playTone(320, 0.12, 'sawtooth', 0.08, 180);
+        this.callbacks.onKickVisitor?.(this.hoveredPlayerId);
       }
     });
 
@@ -352,19 +401,26 @@ export class PixelCanvasRenderer {
     if (this.room) {
       const isMyRoom = this.room.hostUserId === this.myUserId;
 
-      // In editFurnitureMode, prioritize furniture hit-testing first!
+      // Check Furniture hit-testing
       if (isMyRoom && this.room.placedFurniture) {
         for (let i = this.room.placedFurniture.length - 1; i >= 0; i--) {
           const furn = this.room.placedFurniture[i];
           const item = getCosmeticById(furn.itemId);
-          const halfW = (item?.meta?.widthPx || 36) / 2;
-          if (
-            Math.abs(x - furn.x) <= halfW &&
-            y >= PixelCanvasRenderer.FLOOR_Y - 46 &&
-            y <= PixelCanvasRenderer.FLOOR_Y + 4
-          ) {
+          const halfW = ((item?.meta?.widthPx || 36) * 1.25) / 2;
+          let minY = PixelCanvasRenderer.FLOOR_Y - 58;
+          let maxY = PixelCanvasRenderer.FLOOR_Y + 6;
+
+          if (furn.itemId === 'furn_wall_frames') {
+            minY = PixelCanvasRenderer.FLOOR_Y - 98;
+            maxY = PixelCanvasRenderer.FLOOR_Y - 40;
+          } else if (furn.itemId === 'furn_cozy_rug') {
+            minY = PixelCanvasRenderer.FLOOR_Y - 8;
+            maxY = PixelCanvasRenderer.FLOOR_Y + 14;
+          }
+
+          if (Math.abs(x - furn.x) <= halfW && y >= minY && y <= maxY) {
             this.hoveredFurnitureId = furn.instanceId;
-            label = `🖐️ Segure e arraste para mover "${item?.name || 'Móvel'}" (Botão direito: Virar)`;
+            label = `🖐️ Arraste "${item?.name || 'Móvel'}" • Botão Direito: 🗑️ Guardar na Mochila`;
             break;
           }
         }
@@ -374,8 +430,8 @@ export class PixelCanvasRenderer {
       if (!this.editFurnitureMode) {
         for (const drop of this.room.deskDrops) {
           const dx = Math.abs(x - drop.x);
-          const dy = Math.abs(y - (PixelCanvasRenderer.FLOOR_Y - 8));
-          if (dx <= 14 && dy <= 14) {
+          const dy = Math.abs(y - (PixelCanvasRenderer.FLOOR_Y - 10));
+          if (dx <= 16 && dy <= 16) {
             this.hoveredDropId = drop.id;
             const item = getCosmeticById(drop.itemId);
             label = `🎁 Clique para pegar ${item?.name || 'Presente'} (de ${drop.fromDisplayName})`;
@@ -389,15 +445,15 @@ export class PixelCanvasRenderer {
         for (const p of this.room.players) {
           const phys = this.physics.get(p.userId);
           const px = phys ? phys.renderX : p.x;
-          const py = PixelCanvasRenderer.FLOOR_Y + (phys ? phys.renderY : 0) - 18;
-          if (Math.abs(x - px) <= 15 && Math.abs(y - py) <= 22) {
+          const py = PixelCanvasRenderer.FLOOR_Y + (phys ? phys.renderY : 0) - 24;
+          if (Math.abs(x - px) <= 18 && Math.abs(y - py) <= 28) {
             this.hoveredPlayerId = p.userId;
             label =
               p.userId === this.myUserId
                 ? `✨ Você (${p.displayName})`
                 : isMyRoom
-                  ? `👆 Clique: Cutucar/Selecionar ${p.displayName} • Botão Direito: 👢 Expulsar`
-                  : `👆 Clique para cutucar/selecionar ${p.displayName}`;
+                  ? `👆 Clique: Cutucar ${p.displayName} • Botão Direito: 👢 Expulsar`
+                  : `👆 Clique para cutucar ${p.displayName}`;
             break;
           }
         }
@@ -532,7 +588,20 @@ export class PixelCanvasRenderer {
     const H = PixelCanvasRenderer.HEIGHT;
     const floorY = PixelCanvasRenderer.FLOOR_Y;
 
+    // Smoothly track own player horizontally for camera zoom
+    const myPhys = this.physics.get(this.myUserId);
+    const targetCamX = myPhys ? myPhys.renderX : 180;
+    this.cameraX += (targetCamX - this.cameraX) * 0.14;
+
+    const { viewLeft, viewTop } = this.getCameraViewport();
+
     ctx.clearRect(0, 0, W, H);
+
+    ctx.save();
+    if (this.zoomLevel !== 1) {
+      ctx.scale(this.zoomLevel, this.zoomLevel);
+      ctx.translate(-viewLeft, -viewTop);
+    }
 
     const skinId = this.room?.roomSkinId || 'room_cozy_desk';
 
@@ -542,12 +611,23 @@ export class PixelCanvasRenderer {
 
     this.drawFloorStrip(ctx, skinId, W, H, floorY);
 
-    if (!this.room) return;
+    if (!this.room) {
+      ctx.restore();
+      return;
+    }
 
-    // Draw Placed Furniture on the floor (Setup Gamer, Cadeira Gamer, Mesa de Jantar, etc.)
+    // 1. Draw Floor Rugs FIRST so furniture and avatars stand on top of them
     if (this.room.placedFurniture) {
       for (const furn of this.room.placedFurniture) {
-        this.drawPlacedFurniture(ctx, furn, floorY);
+        if (furn.itemId === 'furn_cozy_rug') {
+          this.drawPlacedFurniture(ctx, furn, floorY);
+        }
+      }
+      // 2. Draw all other Furniture & Wall Decor
+      for (const furn of this.room.placedFurniture) {
+        if (furn.itemId !== 'furn_cozy_rug') {
+          this.drawPlacedFurniture(ctx, furn, floorY);
+        }
       }
     }
 
@@ -585,10 +665,12 @@ export class PixelCanvasRenderer {
       if (p.chatBubble && p.chatBubble.expiresAt > Date.now()) {
         const phys = this.physics.get(p.userId);
         const px = phys ? phys.renderX : p.x;
-        const py = floorY + (phys ? phys.renderY : 0) - 44;
+        const py = floorY + (phys ? phys.renderY : 0) - 52;
         this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
       }
     }
+
+    ctx.restore();
   }
 
   private drawPlacedFurniture(
@@ -600,25 +682,25 @@ export class PixelCanvasRenderer {
     const isHovered = this.hoveredFurnitureId === furn.instanceId;
     const isDragging = this.draggingFurnitureId === furn.instanceId;
     const item = getCosmeticById(furn.itemId);
-    const halfW = Math.round((item?.meta?.widthPx || 36) / 2);
+    const colorOpt = getFurnitureColorOption(furn.colorVariant);
+    const furnScale = 1.24;
+    const halfW = Math.round(((item?.meta?.widthPx || 36) * furnScale) / 2);
 
     ctx.save();
     ctx.translate(x, floorY);
-    if (furn.flipped) {
-      ctx.scale(-1, 1);
-    }
+    ctx.scale(furn.flipped ? -furnScale : furnScale, furnScale);
 
     if (furn.itemId === 'furn_gamer_setup') {
       // 🖥️ Setup Gamer RGB (Desk + Dual Monitors + RGB PC Tower + Mechanical Keyboard)
-      // Desk legs
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(-24, -18, 4, 18);
       ctx.fillRect(20, -18, 4, 18);
-      // Carbon desk surface
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = colorOpt ? colorOpt.primary : '#0f172a';
       ctx.fillRect(-27, -21, 54, 4);
-      // Animated RGB LED strip under desk edge
-      const rgbColors = ['#22d3ee', '#f472b6', '#a855f7', '#4ade80'];
+
+      const rgbColors = colorOpt
+        ? [colorOpt.secondary, colorOpt.accent]
+        : ['#22d3ee', '#f472b6', '#a855f7', '#4ade80'];
       const c1 = rgbColors[(this.tick >> 3) % rgbColors.length];
       const c2 = rgbColors[((this.tick >> 3) + 1) % rgbColors.length];
       ctx.fillStyle = c1;
@@ -628,13 +710,11 @@ export class PixelCanvasRenderer {
 
       // Left & Center Dual Monitors
       ctx.fillStyle = '#334155';
-      ctx.fillRect(-20, -25, 3, 4); // Stand 1
-      ctx.fillRect(-3, -25, 3, 4); // Stand 2
-      // Monitor frames
+      ctx.fillRect(-20, -25, 3, 4);
+      ctx.fillRect(-3, -25, 3, 4);
       ctx.fillStyle = '#090d16';
       ctx.fillRect(-25, -39, 15, 14);
       ctx.fillRect(-9, -40, 17, 15);
-      // Glowing screens with code/game lines
       ctx.fillStyle = '#0284c7';
       ctx.fillRect(-24, -38, 13, 12);
       ctx.fillStyle = '#1e1b4b';
@@ -642,83 +722,73 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#4ade80';
       ctx.fillRect(-22, -36, 7, 2);
       ctx.fillRect(-22, -32, 9, 2);
-      ctx.fillStyle = '#f472b6';
+      ctx.fillStyle = c1;
       ctx.fillRect(-6, -36, 10, 2);
-      ctx.fillStyle = '#22d3ee';
+      ctx.fillStyle = c2;
       ctx.fillRect(-6, -32, 8, 3);
 
-      // RGB Mechanical Keyboard on desk
+      // RGB Mechanical Keyboard
       ctx.fillStyle = '#e2e8f0';
       ctx.fillRect(-10, -23, 12, 2);
       ctx.fillStyle = c1;
       ctx.fillRect(-9, -22, 10, 1);
 
-      // Glass PC Case Tower on right side of desk
+      // Glass PC Case Tower
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(11, -39, 13, 18);
       ctx.fillStyle = '#090d16';
       ctx.fillRect(13, -37, 9, 14);
-      // Animated RGB coolers inside PC tower
       ctx.fillStyle = c1;
       ctx.fillRect(15, -35, 5, 4);
       ctx.fillStyle = c2;
       ctx.fillRect(15, -29, 5, 4);
     } else if (furn.itemId === 'furn_gamer_chair') {
-      // 🪑 Cadeira Gamer Pro (Racing Chair)
-      // 5-star wheel base on floor
+      // 🪑 Cadeira Gamer Pro (Racing Chair with customizable color)
+      const mainTrim = colorOpt ? colorOpt.secondary : '#ef4444';
+      const darkBase = colorOpt ? colorOpt.primary : '#1e293b';
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(-9, -3, 18, 3);
-      ctx.fillRect(-2, -9, 4, 6); // Gas lift
-      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-2, -9, 4, 6);
+      ctx.fillStyle = mainTrim;
       ctx.fillRect(-10, -2, 3, 2);
       ctx.fillRect(7, -2, 3, 2);
-      // Seat cushion
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = darkBase;
       ctx.fillRect(-10, -13, 20, 4);
-      ctx.fillStyle = '#ef4444';
+      ctx.fillStyle = mainTrim;
       ctx.fillRect(-10, -12, 4, 3);
       ctx.fillRect(6, -12, 4, 3);
-      // High racing backrest
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = darkBase;
       ctx.fillRect(-7, -36, 14, 23);
-      ctx.fillStyle = '#ef4444'; // Racing stripes
+      ctx.fillStyle = mainTrim;
       ctx.fillRect(-7, -34, 3, 20);
       ctx.fillRect(4, -34, 3, 20);
-      // Headrest & Lumbar pillows
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = colorOpt ? colorOpt.accent : '#f8fafc';
       ctx.fillRect(-4, -33, 8, 3);
-      ctx.fillStyle = '#ef4444';
+      ctx.fillStyle = mainTrim;
       ctx.fillRect(-4, -18, 8, 4);
-      // Armrests
       ctx.fillStyle = '#334155';
       ctx.fillRect(-11, -19, 3, 6);
       ctx.fillRect(8, -19, 3, 6);
     } else if (furn.itemId === 'furn_dining_table') {
       // 🍽️ Mesa de Jantar Posta
-      // Wooden legs
       ctx.fillStyle = '#78350f';
       ctx.fillRect(-24, -18, 4, 18);
       ctx.fillRect(20, -18, 4, 18);
-      // Oak tabletop
       ctx.fillStyle = '#92400e';
       ctx.fillRect(-28, -22, 56, 5);
-      // White & crimson centerpiece tablecloth overhang
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = colorOpt ? colorOpt.accent : '#f8fafc';
       ctx.fillRect(-22, -22, 44, 3);
-      ctx.fillStyle = '#e11d48';
+      ctx.fillStyle = colorOpt ? colorOpt.secondary : '#e11d48';
       ctx.fillRect(-8, -22, 16, 6);
-      // Left & Right Porcelain Dinner Plates
       ctx.fillStyle = '#e2e8f0';
       ctx.fillRect(-21, -24, 10, 2);
       ctx.fillRect(11, -24, 10, 2);
-      // Wine glasses
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(-9, -28, 3, 4);
       ctx.fillRect(6, -28, 3, 4);
       ctx.fillStyle = '#cbd5e1';
       ctx.fillRect(-8, -24, 1, 2);
       ctx.fillRect(7, -24, 1, 2);
-      // Center Candlestick + Flickering Flame
       ctx.fillStyle = '#facc15';
       ctx.fillRect(-2, -26, 4, 4);
       ctx.fillStyle = '#fef08a';
@@ -726,40 +796,21 @@ export class PixelCanvasRenderer {
       const flicker = (this.tick >> 2) % 2 === 0 ? -1 : 0;
       ctx.fillStyle = '#f97316';
       ctx.fillRect(-1, -34 + flicker, 2, 3);
-    } else if (furn.itemId === 'furn_arcade_cabinet') {
-      // 🕹️ Fliperama Arcade 90s
-      ctx.fillStyle = '#3b0764';
-      ctx.fillRect(-13, -46, 26, 46);
-      ctx.fillStyle = '#7e22ce';
-      ctx.fillRect(-15, -46, 3, 46);
-      ctx.fillRect(12, -46, 3, 46);
-      // Glowing Top Marquee
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-12, -44, 24, 6);
-      // CRT Screen
-      ctx.fillStyle = '#090d16';
-      ctx.fillRect(-10, -35, 20, 14);
-      ctx.fillStyle = (this.tick >> 3) % 2 === 0 ? '#22d3ee' : '#f472b6';
-      ctx.fillRect(-7, -31, 5, 5);
-      ctx.fillStyle = '#4ade80';
-      ctx.fillRect(2, -28, 4, 4);
-      // Joystick deck
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(-7, -20, 2, 3);
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(3, -19, 2, 2);
-      ctx.fillRect(6, -19, 2, 2);
     } else if (furn.itemId === 'furn_cozy_sofa') {
-      // 🛋️ Sofá Lofi 2 Lugares
-      ctx.fillStyle = '#831843';
+      // 🛋️ Sofá Lofi 2 Lugares (Com suporte total a troca de cor!)
+      const sofaDark = colorOpt ? colorOpt.primary : '#831843';
+      const sofaMid = colorOpt ? colorOpt.secondary : '#db2777';
+      const pillowAccent = colorOpt ? colorOpt.accent : '#fde047';
+
+      ctx.fillStyle = sofaDark;
       ctx.fillRect(-24, -22, 48, 20);
-      ctx.fillStyle = '#be185d';
+      ctx.fillStyle = sofaMid;
       ctx.fillRect(-20, -26, 40, 14);
-      ctx.fillStyle = '#db2777';
+      ctx.fillStyle = sofaMid;
       ctx.fillRect(-20, -13, 19, 8);
       ctx.fillRect(1, -13, 19, 8);
       // Throw pillows
-      ctx.fillStyle = '#fde047';
+      ctx.fillStyle = pillowAccent;
       ctx.fillRect(-17, -21, 7, 7);
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(10, -21, 7, 7);
@@ -767,16 +818,175 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#451a03';
       ctx.fillRect(-22, -2, 4, 2);
       ctx.fillRect(18, -2, 4, 2);
+    } else if (furn.itemId === 'furn_cozy_rug') {
+      // 🧶 Tapete Felpudo no chão (Personalizável por cor)
+      const rugBase = colorOpt ? colorOpt.primary : '#92400e';
+      const rugInner = colorOpt ? colorOpt.secondary : '#eab308';
+      const rugPattern = colorOpt ? colorOpt.accent : '#fef08a';
+
+      // White tassels on both ends
+      ctx.fillStyle = '#f8fafc';
+      for (let ty = -2; ty <= 4; ty += 2) {
+        ctx.fillRect(-35, ty, 3, 1);
+        ctx.fillRect(32, ty, 3, 1);
+      }
+      ctx.fillStyle = rugBase;
+      ctx.fillRect(-32, -3, 64, 9);
+      ctx.fillStyle = rugInner;
+      ctx.fillRect(-28, -2, 56, 7);
+      // Geometric pixel diamonds
+      ctx.fillStyle = rugPattern;
+      ctx.fillRect(-18, 0, 6, 3);
+      ctx.fillRect(-3, 0, 6, 3);
+      ctx.fillRect(12, 0, 6, 3);
+    } else if (furn.itemId === 'furn_wall_frames') {
+      // 🖼️ Galeria de Quadros na Parede
+      const frameColor = colorOpt ? colorOpt.primary : '#78350f';
+      const artAccent = colorOpt ? colorOpt.secondary : '#38bdf8';
+      const artHighlight = colorOpt ? colorOpt.accent : '#facc15';
+
+      // Left Frame (Mountain sunset)
+      ctx.fillStyle = frameColor;
+      ctx.fillRect(-22, -74, 14, 18);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-20, -72, 10, 14);
+      ctx.fillStyle = artHighlight;
+      ctx.fillRect(-17, -69, 4, 4);
+      ctx.fillStyle = artAccent;
+      ctx.fillRect(-20, -63, 10, 5);
+
+      // Center Large Frame (Portrait / Abstract)
+      ctx.fillStyle = frameColor;
+      ctx.fillRect(-6, -78, 16, 22);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-4, -76, 12, 18);
+      ctx.fillStyle = artAccent;
+      ctx.fillRect(-2, -73, 8, 8);
+      ctx.fillStyle = artHighlight;
+      ctx.fillRect(0, -64, 4, 5);
+
+      // Right Frame (Mini landscape)
+      ctx.fillStyle = frameColor;
+      ctx.fillRect(12, -72, 12, 15);
+      ctx.fillStyle = artHighlight;
+      ctx.fillRect(14, -70, 8, 11);
+      ctx.fillStyle = artAccent;
+      ctx.fillRect(14, -64, 8, 5);
+    } else if (furn.itemId === 'furn_floor_lamp') {
+      // 💡 Luminária de Piso Aconchegante com Cone de Luz
+      const shadeColor = colorOpt ? colorOpt.secondary : '#eab308';
+      const glowColor = colorOpt ? colorOpt.accent : '#fef08a';
+
+      // Soft warm light cone
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = glowColor;
+      ctx.beginPath();
+      ctx.moveTo(-6, -34);
+      ctx.lineTo(6, -34);
+      ctx.lineTo(18, 0);
+      ctx.lineTo(-18, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Stand base & pole
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(-7, -3, 14, 3);
+      ctx.fillRect(-1, -36, 2, 33);
+
+      // Lamp Shade
+      ctx.fillStyle = shadeColor;
+      ctx.fillRect(-8, -46, 16, 11);
+      ctx.fillStyle = glowColor;
+      ctx.fillRect(-6, -36, 12, 2);
+    } else if (furn.itemId === 'furn_bookshelf') {
+      // 📚 Estante de Livros & Plantas
+      const woodMain = colorOpt ? colorOpt.primary : '#451a03';
+      const woodShelf = colorOpt ? colorOpt.secondary : '#78350f';
+
+      ctx.fillStyle = woodMain;
+      ctx.fillRect(-18, -44, 36, 44);
+      ctx.fillStyle = woodShelf;
+      ctx.fillRect(-19, -44, 38, 3);
+      ctx.fillRect(-19, -29, 38, 3);
+      ctx.fillRect(-19, -15, 38, 3);
+
+      // Books on shelves
+      const bCols = ['#ef4444', '#38bdf8', '#facc15', '#a855f7', '#4ade80'];
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = bCols[i];
+        ctx.fillRect(-15 + i * 6, -40, 4, 11);
+        ctx.fillRect(-14 + i * 6, -25, 5, 10);
+        ctx.fillRect(-15 + i * 6, -11, 4, 10);
+      }
+
+      // Hanging vine on top right of bookshelf
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(10, -47, 8, 5);
+      ctx.fillRect(13, -42, 4, 10);
+      ctx.fillRect(15, -32, 3, 8);
+    } else if (furn.itemId === 'furn_aquarium') {
+      // 🐠 Aquário Iluminado com Peixinho Nadando
+      const standColor = colorOpt ? colorOpt.primary : '#1e293b';
+      ctx.fillStyle = standColor;
+      ctx.fillRect(-18, -18, 36, 18);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-15, -15, 13, 12);
+      ctx.fillRect(2, -15, 13, 12);
+
+      // Glass Water Tank
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(-19, -38, 38, 20);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(-17, -36, 34, 16);
+
+      // Sand & seaweed inside tank
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(-17, -23, 34, 3);
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(-12, -31, 3, 8);
+      ctx.fillRect(9, -33, 3, 10);
+
+      // Swimming mini fish inside aquarium
+      const fishX = Math.round(Math.sin(this.tick * 0.06) * 9);
+      const fishDir = Math.cos(this.tick * 0.06) >= 0 ? 1 : -1;
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(fishX - 3, -31, 6, 4);
+      ctx.fillRect(fishX - fishDir * 5, -30, 2, 2);
+
+      // Top LED Hood
+      ctx.fillStyle = colorOpt ? colorOpt.secondary : '#0f172a';
+      ctx.fillRect(-20, -41, 40, 3);
+    } else if (furn.itemId === 'furn_arcade_cabinet') {
+      // 🕹️ Fliperama Arcade 90s
+      ctx.fillStyle = colorOpt ? colorOpt.primary : '#3b0764';
+      ctx.fillRect(-13, -46, 26, 46);
+      ctx.fillStyle = colorOpt ? colorOpt.secondary : '#7e22ce';
+      ctx.fillRect(-15, -46, 3, 46);
+      ctx.fillRect(12, -46, 3, 46);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-12, -44, 24, 6);
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(-10, -35, 20, 14);
+      ctx.fillStyle = (this.tick >> 3) % 2 === 0 ? '#22d3ee' : '#f472b6';
+      ctx.fillRect(-7, -31, 5, 5);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(2, -28, 4, 4);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-7, -20, 2, 3);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(3, -19, 2, 2);
+      ctx.fillRect(6, -19, 2, 2);
     } else if (furn.itemId === 'furn_mini_fridge') {
       // 🧊 Frigobar RGB
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = colorOpt ? colorOpt.primary : '#0f172a';
       ctx.fillRect(-11, -30, 22, 30);
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(-9, -28, 18, 26);
-      ctx.strokeStyle = '#22d3ee';
+      ctx.strokeStyle = colorOpt ? colorOpt.secondary : '#22d3ee';
       ctx.lineWidth = 1;
       ctx.strokeRect(-8, -27, 16, 24);
-      // Cans inside
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(-5, -23, 3, 5);
       ctx.fillStyle = '#4ade80';
@@ -787,20 +997,20 @@ export class PixelCanvasRenderer {
       ctx.fillRect(0, -13, 3, 5);
     } else if (furn.itemId === 'furn_sakura_bonsai') {
       // 🌸 Bonsai de Sakura
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = colorOpt ? colorOpt.primary : '#1e293b';
       ctx.fillRect(-9, -8, 18, 8);
       ctx.fillStyle = '#78350f';
       ctx.fillRect(-3, -22, 5, 14);
       ctx.fillRect(-8, -20, 6, 3);
-      ctx.fillStyle = '#f472b6';
+      ctx.fillStyle = colorOpt ? colorOpt.secondary : '#f472b6';
       ctx.fillRect(-14, -34, 28, 12);
-      ctx.fillStyle = '#fbcfe8';
+      ctx.fillStyle = colorOpt ? colorOpt.accent : '#fbcfe8';
       ctx.fillRect(-10, -38, 20, 8);
     }
 
     ctx.restore();
 
-    // Draw Dragging / Edit Mode highlight box
+    // Draw Dragging / Hover highlight box
     if (isDragging || isHovered || this.editFurnitureMode) {
       ctx.save();
       ctx.strokeStyle = isDragging
@@ -810,15 +1020,29 @@ export class PixelCanvasRenderer {
           : 'rgba(148, 163, 184, 0.45)';
       ctx.lineWidth = isDragging || isHovered ? 1.5 : 1;
       ctx.setLineDash(isDragging ? [] : [3, 3]);
-      ctx.strokeRect(x - halfW - 2, floorY - 44, halfW * 2 + 4, 44);
+
+      const boxTop =
+        furn.itemId === 'furn_wall_frames'
+          ? floorY - 98
+          : furn.itemId === 'furn_cozy_rug'
+            ? floorY - 6
+            : floorY - 56;
+      const boxH =
+        furn.itemId === 'furn_wall_frames'
+          ? 52
+          : furn.itemId === 'furn_cozy_rug'
+            ? 14
+            : 56;
+
+      ctx.strokeRect(x - halfW - 2, boxTop, halfW * 2 + 4, boxH);
 
       if (isDragging || isHovered) {
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-        ctx.fillRect(x - 24, floorY - 56, 48, 11);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.fillRect(x - 28, boxTop - 13, 56, 11);
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 8px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`↔ X:${x}`, x, floorY - 48);
+        ctx.fillText(`↔ X:${x}`, x, boxTop - 5);
       }
       ctx.restore();
     }
@@ -828,10 +1052,188 @@ export class PixelCanvasRenderer {
     ctx: CanvasRenderingContext2D,
     skinId: string,
     W: number,
-    H: number,
+    _H: number,
     floorY: number
   ) {
-    if (skinId === 'room_rainy_rooftop') {
+    if (skinId === 'room_dense_forest') {
+      // 🌲 Floresta Densa Encantada
+      const grad = ctx.createLinearGradient(0, 0, 0, floorY);
+      grad.addColorStop(0, '#022c22');
+      grad.addColorStop(0.6, '#064e3b');
+      grad.addColorStop(1, '#14532d');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, floorY);
+
+      // Back layer giant tree trunks
+      ctx.fillStyle = '#052e16';
+      for (let tx = 8; tx < W; tx += 52) {
+        ctx.fillRect(tx, 0, 18, floorY);
+      }
+
+      // Foreground giant oak trunks with bark texture
+      for (let tx = 30; tx < W; tx += 78) {
+        ctx.fillStyle = '#3f2305';
+        ctx.fillRect(tx, 0, 24, floorY);
+        ctx.fillStyle = '#291502';
+        ctx.fillRect(tx + 16, 0, 8, floorY);
+      }
+
+      // Dense leaf canopy along top ceiling
+      ctx.fillStyle = '#065f46';
+      ctx.fillRect(0, 0, W, 28);
+      for (let lx = 0; lx < W; lx += 28) {
+        ctx.fillStyle = lx % 56 === 0 ? '#047857' : '#15803d';
+        ctx.fillRect(lx, 16, 30, 18);
+      }
+
+      // Hanging vines swaying gently
+      for (let vx = 22; vx < W; vx += 46) {
+        const sway = Math.round(Math.sin(this.tick * 0.05 + vx) * 2);
+        const vineLen = 28 + (vx % 26);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(vx + sway, 24, 2, vineLen);
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(vx + sway - 2, 24 + vineLen - 4, 5, 4);
+      }
+
+      // Glowing bioluminescent mushrooms near forest floor
+      const mushPositions = [48, 128, 224, 312];
+      mushPositions.forEach((mx, idx) => {
+        ctx.fillStyle = '#fde68a';
+        ctx.fillRect(mx - 1, floorY - 7, 3, 7);
+        ctx.fillStyle = idx % 2 === 0 ? '#38bdf8' : '#f472b6';
+        ctx.fillRect(mx - 5, floorY - 11, 11, 5);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(mx - 3, floorY - 10, 2, 2);
+        ctx.fillRect(mx + 2, floorY - 9, 2, 2);
+      });
+
+      // Floating fireflies
+      for (let i = 0; i < 18; i++) {
+        const fx = (i * 47 + Math.round(Math.sin(this.tick * 0.03 + i) * 8)) % W;
+        const fy = 32 + ((i * 29 + Math.round(Math.cos(this.tick * 0.04 + i) * 6)) % (floorY - 46));
+        ctx.fillStyle = '#fde047';
+        const s = Math.sin(this.tick * 0.1 + i) > 0 ? 2 : 1;
+        ctx.fillRect(fx, fy, s, s);
+      }
+    } else if (skinId === 'room_office') {
+      // 🏢 Escritório Executivo Moderno
+      const grad = ctx.createLinearGradient(0, 0, 0, floorY);
+      grad.addColorStop(0, '#1e293b');
+      grad.addColorStop(1, '#334155');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, floorY);
+
+      // Panoramic Corporate Window with Skyline & Blinds (Left)
+      ctx.fillStyle = '#bae6fd';
+      ctx.fillRect(20, 20, 110, 82);
+      // City skyline silhouette in daylight
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillRect(28, 48, 22, 54);
+      ctx.fillRect(54, 34, 28, 68);
+      ctx.fillRect(88, 52, 32, 50);
+      // Horizontal office blinds
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.65)';
+      for (let by = 24; by < 56; by += 6) {
+        ctx.fillRect(22, by, 106, 2);
+      }
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(20, 20, 110, 82);
+
+      // Wall Clock (Center)
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(156, 24, 18, 18);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(156, 24, 18, 18);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(164, 28, 2, 6);
+      ctx.fillRect(164, 32, 5, 2);
+
+      // Agile Kanban / Strategy Whiteboard (Right)
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(198, 24, 96, 62);
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(198, 24, 96, 62);
+      // Bar chart on whiteboard
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(208, 64, 8, 14);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(220, 56, 8, 22);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(232, 44, 8, 34);
+      // Sticky notes on whiteboard
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(254, 34, 12, 12);
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(270, 34, 12, 12);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(254, 50, 12, 12);
+
+      // Office Water Cooler on far right
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(318, floorY - 34, 20, 34);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(321, floorY - 52, 14, 18);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(323, floorY - 24, 3, 4);
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(330, floorY - 24, 3, 4);
+    } else if (skinId === 'room_underwater') {
+      // 🌊 Fundo do Mar (Recife de Corais)
+      const grad = ctx.createLinearGradient(0, 0, 0, floorY);
+      grad.addColorStop(0, '#082f49');
+      grad.addColorStop(0.55, '#0369a1');
+      grad.addColorStop(1, '#0284c7');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, floorY);
+
+      // Diagonal sunbeams piercing through water
+      ctx.save();
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.12)';
+      for (let rx = 20; rx < W; rx += 95) {
+        ctx.beginPath();
+        ctx.moveTo(rx, 0);
+        ctx.lineTo(rx + 36, 0);
+        ctx.lineTo(rx + 78, floorY);
+        ctx.lineTo(rx + 28, floorY);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Background swimming fish silhouettes
+      for (let i = 0; i < 4; i++) {
+        const fx = ((this.tick * (i % 2 === 0 ? 1 : -1) + i * 95) % W + W) % W;
+        const fy = 28 + i * 22;
+        ctx.fillStyle = 'rgba(12, 74, 110, 0.65)';
+        ctx.fillRect(fx, fy, 10, 5);
+        ctx.fillRect(fx - 3, fy + 1, 3, 3);
+      }
+
+      // Swaying kelp / seaweed & colorful corals along bottom
+      for (let kx = 18; kx < W; kx += 48) {
+        const sway = Math.round(Math.sin(this.tick * 0.06 + kx) * 3);
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(kx, floorY - 22, 5, 22);
+        ctx.fillRect(kx + sway, floorY - 42, 5, 20);
+        ctx.fillStyle = kx % 96 === 0 ? '#f43f5e' : '#a855f7';
+        ctx.fillRect(kx + 18, floorY - 18, 14, 18);
+        ctx.fillRect(kx + 14, floorY - 24, 8, 10);
+        ctx.fillRect(kx + 26, floorY - 22, 8, 10);
+      }
+
+      // Rising water bubbles
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.7)';
+      ctx.lineWidth = 1;
+      for (let b = 0; b < 14; b++) {
+        const bx = (b * 29 + Math.round(Math.sin(this.tick * 0.05 + b) * 4)) % W;
+        const by = floorY - ((this.tick + b * 19) % floorY);
+        ctx.strokeRect(bx, by, 4, 4);
+      }
+    } else if (skinId === 'room_rainy_rooftop') {
       // Rainy Rooftop Lofi
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
       grad.addColorStop(0, '#090d16');
@@ -839,7 +1241,6 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Far city buildings
       const buildings = [
         { x: 10, w: 38, h: 90, c: '#0f172a' },
         { x: 52, w: 46, h: 115, c: '#111827' },
@@ -852,7 +1253,6 @@ export class PixelCanvasRenderer {
       buildings.forEach((b, idx) => {
         ctx.fillStyle = b.c;
         ctx.fillRect(b.x, floorY - b.h, b.w, b.h);
-        // Lit pixel windows
         ctx.fillStyle = idx % 2 === 0 ? '#38bdf8' : '#f472b6';
         for (let wy = floorY - b.h + 10; wy < floorY - 14; wy += 14) {
           for (let wx = b.x + 6; wx < b.x + b.w - 8; wx += 10) {
@@ -863,11 +1263,10 @@ export class PixelCanvasRenderer {
         }
       });
 
-      // Falling pixel rain lines
       ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
       for (let i = 0; i < 36; i++) {
-        const rx = ((i * 37 + this.tick * 2) % W);
-        const ry = ((i * 29 + this.tick * 5) % floorY);
+        const rx = (i * 37 + this.tick * 2) % W;
+        const ry = (i * 29 + this.tick * 5) % floorY;
         ctx.fillRect(rx, ry, 1, 7);
       }
     } else if (skinId === 'room_forest_campfire') {
@@ -878,7 +1277,6 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Stars & Fireflies
       for (let i = 0; i < 22; i++) {
         const sx = (i * 53) % W;
         const sy = (i * 23) % (floorY - 40);
@@ -887,7 +1285,6 @@ export class PixelCanvasRenderer {
         ctx.fillRect(sx, sy, pulse, pulse);
       }
 
-      // Pixel Pine Trees
       for (let tx = 16; tx < W; tx += 44) {
         ctx.fillStyle = '#065f46';
         ctx.fillRect(tx + 8, floorY - 64, 8, 64);
@@ -897,7 +1294,6 @@ export class PixelCanvasRenderer {
         ctx.fillRect(tx + 6, floorY - 72, 12, 14);
       }
 
-      // Center Campfire
       const cx = 180;
       ctx.fillStyle = '#78350f';
       ctx.fillRect(cx - 12, floorY - 6, 24, 6);
@@ -911,9 +1307,7 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#27171c';
       ctx.fillRect(0, 0, W, floorY);
 
-      // Panoramic train windows showing moving sunset scenery
       for (let wx = 20; wx < W - 30; wx += 112) {
-        // Sunset sky inside window
         const skyGrad = ctx.createLinearGradient(0, 24, 0, 114);
         skyGrad.addColorStop(0, '#c2410c');
         skyGrad.addColorStop(0.6, '#fb923c');
@@ -921,18 +1315,15 @@ export class PixelCanvasRenderer {
         ctx.fillStyle = skyGrad;
         ctx.fillRect(wx, 26, 94, 86);
 
-        // Scrolling telegraph poles & hills
         const scrollX = (this.tick * 2) % 94;
         ctx.fillStyle = '#431407';
         ctx.fillRect(wx + 94 - scrollX, 54, 3, 58);
 
-        // Window frame border
         ctx.strokeStyle = '#78350f';
         ctx.lineWidth = 4;
         ctx.strokeRect(wx, 26, 94, 86);
       }
 
-      // Hanging train handles
       for (let hx = 45; hx < W - 30; hx += 65) {
         const sway = Math.round(Math.sin(this.tick * 0.08) * 2);
         ctx.fillStyle = '#a1a1aa';
@@ -949,10 +1340,8 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Night window on the left
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(28, 22, 76, 78);
-      // Crescent moon & stars inside window
       ctx.fillStyle = '#fef08a';
       ctx.fillRect(78, 36, 12, 12);
       ctx.fillStyle = '#0f172a';
@@ -961,21 +1350,18 @@ export class PixelCanvasRenderer {
       ctx.fillRect(42, 40, 2, 2);
       ctx.fillRect(56, 62, 2, 2);
       ctx.fillRect(48, 80, 2, 2);
-      // Window frame
       ctx.strokeStyle = '#475569';
       ctx.lineWidth = 4;
       ctx.strokeRect(28, 22, 76, 78);
       ctx.fillStyle = '#334155';
       ctx.fillRect(22, 98, 88, 6);
 
-      // Bookshelf on the right
       ctx.fillStyle = '#451a03';
       ctx.fillRect(246, 36, 76, 62);
       ctx.fillStyle = '#78350f';
       ctx.fillRect(242, 64, 84, 5);
       ctx.fillRect(242, 94, 84, 5);
 
-      // Colorful pixel books
       const bookColors = ['#ef4444', '#38bdf8', '#facc15', '#a855f7', '#22c55e'];
       for (let i = 0; i < 5; i++) {
         ctx.fillStyle = bookColors[i];
@@ -983,7 +1369,6 @@ export class PixelCanvasRenderer {
         ctx.fillRect(256 + i * 11, 72, 9, 22);
       }
 
-      // Cozy potted plant
       ctx.fillStyle = '#b45309';
       ctx.fillRect(152, floorY - 14, 14, 14);
       ctx.fillStyle = '#10b981';
@@ -1000,10 +1385,25 @@ export class PixelCanvasRenderer {
     floorY: number
   ) {
     const fh = PixelCanvasRenderer.FLOOR_HEIGHT;
-    if (skinId === 'room_forest_campfire') {
+    if (skinId === 'room_forest_campfire' || skinId === 'room_dense_forest') {
       ctx.fillStyle = '#14532d';
       ctx.fillRect(0, floorY, W, fh);
       ctx.fillStyle = '#22c55e';
+      ctx.fillRect(0, floorY, W, 4);
+    } else if (skinId === 'room_underwater') {
+      // Sandy ocean floor with shells
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(0, floorY, W, fh);
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(0, floorY, W, 4);
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(65, floorY + 7, 5, 4);
+      ctx.fillRect(245, floorY + 8, 6, 4);
+    } else if (skinId === 'room_office') {
+      // Executive carpet tile floor
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, floorY, W, fh);
+      ctx.fillStyle = '#475569';
       ctx.fillRect(0, floorY, W, 4);
     } else if (skinId === 'room_rainy_rooftop') {
       ctx.fillStyle = '#1e293b';
@@ -1029,59 +1429,57 @@ export class PixelCanvasRenderer {
     floorY: number
   ) {
     const x = Math.round(drop.x);
-    const y = floorY - 14;
+    const y = floorY - 16;
     const isHovered = this.hoveredDropId === drop.id;
     const bob = isHovered ? -3 : Math.round(Math.sin(this.tick * 0.08 + x) * 1.5);
 
     ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.scale(1.25, 1.25);
+
     if (isHovered) {
       ctx.fillStyle = 'rgba(250, 204, 21, 0.35)';
-      ctx.fillRect(x - 12, y + bob - 4, 24, 20);
+      ctx.fillRect(-12, -4, 24, 20);
     }
 
     if (drop.itemId === 'drop_coffee') {
-      // Espresso mug + rising steam
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(x - 6, y + bob + 2, 12, 11);
+      ctx.fillRect(-6, 2, 12, 11);
       ctx.fillStyle = '#78350f';
-      ctx.fillRect(x - 4, y + bob + 4, 8, 3);
+      ctx.fillRect(-4, 4, 8, 3);
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       const steamOffset = (this.tick >> 3) % 4;
-      ctx.fillRect(x - 3, y + bob - 4 - steamOffset, 2, 4);
-      ctx.fillRect(x + 2, y + bob - 2 - steamOffset, 2, 4);
+      ctx.fillRect(-3, -4 - steamOffset, 2, 4);
+      ctx.fillRect(2, -2 - steamOffset, 2, 4);
     } else if (drop.itemId === 'drop_rubber_duck') {
-      // Yellow rubber duck
       ctx.fillStyle = '#facc15';
-      ctx.fillRect(x - 7, y + bob + 4, 14, 9);
-      ctx.fillRect(x + 1, y + bob - 1, 8, 7);
+      ctx.fillRect(-7, 4, 14, 9);
+      ctx.fillRect(1, -1, 8, 7);
       ctx.fillStyle = '#f97316';
-      ctx.fillRect(x + 8, y + bob + 2, 4, 3);
+      ctx.fillRect(8, 2, 4, 3);
       ctx.fillStyle = '#000000';
-      ctx.fillRect(x + 5, y + bob + 1, 2, 2);
+      ctx.fillRect(5, 1, 2, 2);
     } else if (drop.itemId === 'drop_birthday_cake') {
-      // Cake with candle
       ctx.fillStyle = '#fbcfe8';
-      ctx.fillRect(x - 8, y + bob + 4, 16, 10);
+      ctx.fillRect(-8, 4, 16, 10);
       ctx.fillStyle = '#f43f5e';
-      ctx.fillRect(x - 8, y + bob + 4, 16, 3);
+      ctx.fillRect(-8, 4, 16, 3);
       ctx.fillStyle = '#fef08a';
-      ctx.fillRect(x - 1, y + bob - 2, 2, 6);
+      ctx.fillRect(-1, -2, 2, 6);
       ctx.fillStyle = '#f97316';
-      ctx.fillRect(x - 1, y + bob - 5, 2, 3);
+      ctx.fillRect(-1, -5, 2, 3);
     } else if (drop.itemId === 'drop_sleeping_cat') {
-      // Sleeping orange cat
       ctx.fillStyle = '#fb923c';
-      ctx.fillRect(x - 9, y + bob + 5, 18, 9);
+      ctx.fillRect(-9, 5, 18, 9);
       ctx.fillStyle = '#ea580c';
-      ctx.fillRect(x - 5, y + bob + 5, 3, 5);
-      ctx.fillRect(x + 2, y + bob + 5, 3, 5);
+      ctx.fillRect(-5, 5, 3, 5);
+      ctx.fillRect(2, 5, 3, 5);
     } else {
-      // Post-it note
       ctx.fillStyle = '#fef08a';
-      ctx.fillRect(x - 7, y + bob + 2, 14, 12);
+      ctx.fillRect(-7, 2, 14, 12);
       ctx.fillStyle = '#ca8a04';
-      ctx.fillRect(x - 5, y + bob + 5, 10, 2);
-      ctx.fillRect(x - 5, y + bob + 9, 7, 2);
+      ctx.fillRect(-5, 5, 10, 2);
+      ctx.fillRect(-5, 9, 7, 2);
     }
     ctx.restore();
   }
@@ -1096,14 +1494,12 @@ export class PixelCanvasRenderer {
     const peekY = floorY - 34;
 
     ctx.save();
-    // Peeking head at right border of the window
     ctx.fillStyle = '#fbbf24';
     ctx.fillRect(peekX, peekY, 18, 22);
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(peekX + 3, peekY + 7, 3, 3);
     ctx.fillRect(peekX + 10, peekY + 7, 3, 3);
 
-    // Pulsing doorbell badge
     const secsLeft = Math.max(0, Math.ceil((knock.expiresAt - Date.now()) / 1000));
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.fillRect(W - 118, peekY - 22, 114, 18);
@@ -1130,7 +1526,6 @@ export class PixelCanvasRenderer {
       const progress = spawnElapsed / 1400;
       if (p.spawnFx.fxId === 'fx_parachute') {
         y = Math.round(floorY - (1 - progress) * 115);
-        // Draw pixel parachute canopy above avatar
         ctx.fillStyle = '#fb923c';
         ctx.fillRect(x - 16, y - 48, 32, 12);
         ctx.fillStyle = '#fde047';
@@ -1149,7 +1544,6 @@ export class PixelCanvasRenderer {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(x - 1, 0, 2, y);
       } else if (p.spawnFx.fxId === 'fx_alien_abduction') {
-        // Alien UFO tractor beam
         ctx.fillStyle = 'rgba(34, 197, 94, 0.28)';
         ctx.beginPath();
         ctx.moveTo(x - 6, 14);
@@ -1163,7 +1557,6 @@ export class PixelCanvasRenderer {
         ctx.fillStyle = '#22c55e';
         ctx.fillRect(x - 8, 4, 16, 5);
       } else if (p.spawnFx.fxId === 'fx_cardboard_box' && progress < 0.7) {
-        // Cardboard box shaking before popping open
         const shake = Math.round(Math.sin(this.tick * 0.8) * 2);
         ctx.fillStyle = '#d97706';
         ctx.fillRect(x - 13 + shake, y - 24, 26, 24);
@@ -1174,123 +1567,286 @@ export class PixelCanvasRenderer {
     }
 
     const walkBob = phys && phys.walkFrame > 0 ? Math.round(Math.abs(Math.sin(phys.walkFrame)) * 3) : 0;
-    const baseTop = y - 28 - walkBob;
+    const avatarScale = 1.38;
     const dir = p.facing === 'right' ? 1 : -1;
+
+    // Shadow on floor
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(x - 13, floorY - 2, 26, 4);
+
+    // Draw scaled character centered at (x, y)
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(avatarScale, avatarScale);
+
+    const baseTop = -28 - walkBob;
 
     // Selection ring if targeted
     if (this.selectedTargetUserId === p.userId) {
       ctx.strokeStyle = '#facc15';
       ctx.lineWidth = 1;
-      ctx.strokeRect(x - 14, baseTop - 6, 28, 36);
+      ctx.strokeRect(-14, baseTop - 6, 28, 36);
     }
-
-    // Shadow on floor
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.fillRect(x - 10, floorY - 2, 20, 4);
 
     // 1. Back Accessory (avatar_back)
     if (p.equipped.avatar_back === 'back_jetpack') {
       ctx.fillStyle = '#ef4444';
-      ctx.fillRect(x - dir * 11 - 3, baseTop + 8, 7, 13);
+      ctx.fillRect(-dir * 11 - 3, baseTop + 8, 7, 13);
       ctx.fillStyle = '#94a3b8';
-      ctx.fillRect(x - dir * 11 - 2, baseTop + 10, 5, 4);
+      ctx.fillRect(-dir * 11 - 2, baseTop + 10, 5, 4);
     } else if (p.equipped.avatar_back === 'back_angel_wings') {
       const wingFlap = Math.round(Math.sin(this.tick * 0.15) * 2);
       ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(x - 16, baseTop + 6 + wingFlap, 8, 10);
-      ctx.fillRect(x + 8, baseTop + 6 + wingFlap, 8, 10);
+      ctx.fillRect(-16, baseTop + 6 + wingFlap, 8, 10);
+      ctx.fillRect(8, baseTop + 6 + wingFlap, 8, 10);
     }
 
     // 2. Body Sprite (avatar_body)
     const bodyId = p.equipped.avatar_body;
-    if (bodyId === 'body_pigeon') {
+    if (bodyId === 'body_fox') {
+      // 🦊 Raposa Astuta
+      const tailWag = Math.round(Math.sin(this.tick * 0.14) * 2);
+      // Fluffy orange & white tail
+      ctx.fillStyle = '#ea580c';
+      ctx.fillRect(-dir * 13, baseTop + 13 + tailWag, 8, 7);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-dir * 16, baseTop + 14 + tailWag, 4, 5);
+      // Orange body & head
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-9, baseTop + 5, 18, 19);
+      // Pointed Fox Ears
+      ctx.fillRect(-9, baseTop, 5, 5);
+      ctx.fillRect(4, baseTop, 5, 5);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-9, baseTop, 3, 2);
+      ctx.fillRect(6, baseTop, 3, 2);
+      // White cheeks & belly
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-6, baseTop + 12, 12, 11);
+      // Eyes & black nose tip
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dir * 3 - 4, baseTop + 9, 2, 3);
+      ctx.fillRect(dir * 3 + 2, baseTop + 9, 2, 3);
+      ctx.fillRect(dir * 7, baseTop + 11, 3, 2);
+      // Dark paws
+      ctx.fillRect(-6, -4, 4, 4);
+      ctx.fillRect(2, -4, 4, 4);
+    } else if (bodyId === 'body_fish') {
+      // 🐠 Peixinho Tropical
+      const finWave = Math.round(Math.sin(this.tick * 0.2) * 2);
+      // Tail fin
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-dir * 14, baseTop + 9 + finWave, 6, 10);
+      // Tropical blue & orange striped body
+      ctx.fillStyle = '#0ea5e9';
+      ctx.fillRect(-10, baseTop + 6, 20, 16);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-4, baseTop + 6, 4, 16);
+      ctx.fillRect(3, baseTop + 6, 3, 16);
+      // Top dorsal fin
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-5, baseTop + 2, 10, 4);
+      // Cute bubble & eye
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dir * 5, baseTop + 10, 3, 3);
+      ctx.fillStyle = '#bae6fd';
+      ctx.fillRect(dir * 11, baseTop + 4 - ((this.tick >> 3) % 6), 3, 3);
+    } else if (bodyId === 'body_frog') {
+      // 🐸 Sapinho Cururu
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(-10, baseTop + 7, 20, 17);
+      // Bulging frog eyes on top
+      ctx.fillRect(-8, baseTop + 2, 6, 6);
+      ctx.fillRect(2, baseTop + 2, 6, 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-7, baseTop + 3, 4, 4);
+      ctx.fillRect(3, baseTop + 3, 4, 4);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-5, baseTop + 4, 2, 2);
+      ctx.fillRect(5, baseTop + 4, 2, 2);
+      // Cream belly & rosy cheeks
+      ctx.fillStyle = '#dcfce7';
+      ctx.fillRect(-6, baseTop + 14, 12, 9);
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(-8, baseTop + 11, 3, 2);
+      ctx.fillRect(5, baseTop + 11, 3, 2);
+    } else if (bodyId === 'body_penguin') {
+      // 🐧 Pinguim Gelado
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-9, baseTop + 4, 18, 20);
+      // White belly
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-6, baseTop + 10, 12, 13);
+      // Golden beak & orange feet
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(dir * 6, baseTop + 9, 5, 3);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-7, -3, 5, 3);
+      ctx.fillRect(2, -3, 5, 3);
+      // Eyes
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(dir * 3, baseTop + 7, 2, 2);
+    } else if (bodyId === 'body_capybara') {
+      // 🦫 Capivara Zen (com tangerina na cabeça!)
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-10, baseTop + 6, 20, 18);
+      // Snout
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(dir * 4, baseTop + 8, 7, 8);
+      // Round ears
+      ctx.fillRect(-7, baseTop + 3, 4, 3);
+      // Serene closed zen eyes
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dir * 1, baseTop + 9, 4, 1);
+      // Tangerine / Mandarin orange balanced on top of head!
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-3, baseTop + 1, 6, 5);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(-1, baseTop - 1, 3, 2);
+      // Little paws
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-7, -4, 4, 4);
+      ctx.fillRect(3, -4, 4, 4);
+    } else if (bodyId === 'body_red_panda') {
+      // 🐼 Panda Vermelho
+      const tailBob = Math.round(Math.sin(this.tick * 0.14) * 2);
+      // Ringed tail
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(-dir * 14, baseTop + 12 + tailBob, 9, 7);
+      ctx.fillStyle = '#fef2f2';
+      ctx.fillRect(-dir * 12, baseTop + 12 + tailBob, 2, 7);
+      // Reddish-orange body
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(-9, baseTop + 5, 18, 19);
+      // White ears & eyebrow markings
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-9, baseTop + 2, 4, 4);
+      ctx.fillRect(5, baseTop + 2, 4, 4);
+      ctx.fillRect(-6, baseTop + 8, 12, 8);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dir * 2 - 4, baseTop + 10, 2, 3);
+      ctx.fillRect(dir * 2 + 2, baseTop + 10, 2, 3);
+      ctx.fillRect(-6, -4, 4, 4);
+      ctx.fillRect(2, -4, 4, 4);
+    } else if (bodyId === 'body_ghost') {
+      // 👻 Fantasminha Boo (Flutua suavemente!)
+      const hoverY = Math.round(Math.sin(this.tick * 0.1) * 3);
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.92)';
+      ctx.fillRect(-9, baseTop + 3 + hoverY, 18, 19);
+      // Wavy ghost bottom skirt
+      ctx.fillRect(-9, baseTop + 22 + hoverY, 4, 3);
+      ctx.fillRect(-2, baseTop + 22 + hoverY, 4, 3);
+      ctx.fillRect(5, baseTop + 22 + hoverY, 4, 3);
+      // Glowing cyan/dark eyes & blush
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dir * 3 - 4, baseTop + 9 + hoverY, 3, 4);
+      ctx.fillRect(dir * 3 + 2, baseTop + 9 + hoverY, 3, 4);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(dir * 3 - 3, baseTop + 10 + hoverY, 1, 2);
+      ctx.fillRect(dir * 3 + 3, baseTop + 10 + hoverY, 1, 2);
+    } else if (bodyId === 'body_dragon') {
+      // 🐉 Dragãozinho Rubi
+      const wingFlap = Math.round(Math.sin(this.tick * 0.18) * 2);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-14, baseTop + 7 + wingFlap, 6, 9);
+      ctx.fillRect(8, baseTop + 7 + wingFlap, 6, 9);
+      // Ruby body
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(-9, baseTop + 5, 18, 19);
+      // Golden horns & belly scales
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-7, baseTop, 3, 5);
+      ctx.fillRect(4, baseTop, 3, 5);
+      ctx.fillRect(-5, baseTop + 13, 10, 10);
+      // Glowing eyes
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(dir * 3 - 4, baseTop + 8, 2, 3);
+      ctx.fillRect(dir * 3 + 2, baseTop + 8, 2, 3);
+    } else if (bodyId === 'body_pigeon') {
       // Fantasia de Pombo
       ctx.fillStyle = '#94a3b8';
-      ctx.fillRect(x - 9, baseTop + 6, 18, 18);
-      ctx.fillStyle = '#14b8a6'; // Iridescent pigeon neck
-      ctx.fillRect(x - 8, baseTop + 10, 16, 4);
-      ctx.fillStyle = '#f97316'; // Beak & legs
-      ctx.fillRect(x + dir * 8, baseTop + 8, 5, 3);
-      ctx.fillRect(x - 4, y - 4, 2, 4);
-      ctx.fillRect(x + 3, y - 4, 2, 4);
+      ctx.fillRect(-9, baseTop + 6, 18, 18);
+      ctx.fillStyle = '#14b8a6';
+      ctx.fillRect(-8, baseTop + 10, 16, 4);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(dir * 8, baseTop + 8, 5, 3);
+      ctx.fillRect(-4, -4, 2, 4);
+      ctx.fillRect(3, -4, 2, 4);
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(x + dir * 4, baseTop + 7, 2, 2);
+      ctx.fillRect(dir * 4, baseTop + 7, 2, 2);
     } else if (bodyId === 'body_cat') {
       // Gatinho Laranja
       ctx.fillStyle = '#f97316';
-      ctx.fillRect(x - 9, baseTop + 6, 18, 18);
-      // Cat ears
-      ctx.fillRect(x - 9, baseTop + 2, 4, 4);
-      ctx.fillRect(x + 5, baseTop + 2, 4, 4);
-      // Eyes & whiskers
+      ctx.fillRect(-9, baseTop + 6, 18, 18);
+      ctx.fillRect(-9, baseTop + 2, 4, 4);
+      ctx.fillRect(5, baseTop + 2, 4, 4);
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(x + dir * 3 - 4, baseTop + 10, 2, 3);
-      ctx.fillRect(x + dir * 3 + 2, baseTop + 10, 2, 3);
+      ctx.fillRect(dir * 3 - 4, baseTop + 10, 2, 3);
+      ctx.fillRect(dir * 3 + 2, baseTop + 10, 2, 3);
       ctx.fillStyle = '#fed7aa';
-      ctx.fillRect(x - 5, baseTop + 16, 10, 6);
+      ctx.fillRect(-5, baseTop + 16, 10, 6);
     } else if (bodyId === 'body_cyber_bot') {
       // Robô Retrô MK-II
       ctx.fillStyle = '#334155';
-      ctx.fillRect(x - 9, baseTop + 4, 18, 20);
+      ctx.fillRect(-9, baseTop + 4, 18, 20);
       ctx.fillStyle = '#06b6d4';
-      ctx.fillRect(x - 7, baseTop + 7, 14, 5);
+      ctx.fillRect(-7, baseTop + 7, 14, 5);
       ctx.fillStyle = '#22d3ee';
-      ctx.fillRect(x - 1, baseTop, 2, 4);
+      ctx.fillRect(-1, baseTop, 2, 4);
     } else {
       // Default: Humano Cozy
-      ctx.fillStyle = '#fed7aa'; // Head skin
-      ctx.fillRect(x - 7, baseTop + 2, 14, 11);
-      ctx.fillStyle = '#312e81'; // Hair
-      ctx.fillRect(x - 8, baseTop, 16, 5);
-      // Eyes (closed if IDLE SLEEPING)
+      ctx.fillStyle = '#fed7aa';
+      ctx.fillRect(-7, baseTop + 2, 14, 11);
+      ctx.fillStyle = '#312e81';
+      ctx.fillRect(-8, baseTop, 16, 5);
       ctx.fillStyle = '#0f172a';
       if (p.hostStatus === 'IDLE' && p.idleActivity === 'SLEEPING') {
-        ctx.fillRect(x + dir * 2 - 4, baseTop + 8, 3, 1);
-        ctx.fillRect(x + dir * 2 + 2, baseTop + 8, 3, 1);
+        ctx.fillRect(dir * 2 - 4, baseTop + 8, 3, 1);
+        ctx.fillRect(dir * 2 + 2, baseTop + 8, 3, 1);
       } else {
-        ctx.fillRect(x + dir * 2 - 3, baseTop + 7, 2, 3);
-        ctx.fillRect(x + dir * 2 + 3, baseTop + 7, 2, 3);
+        ctx.fillRect(dir * 2 - 3, baseTop + 7, 2, 3);
+        ctx.fillRect(dir * 2 + 3, baseTop + 7, 2, 3);
       }
-      // Hoodie body
       ctx.fillStyle = p.isHost ? '#6366f1' : '#10b981';
-      ctx.fillRect(x - 8, baseTop + 13, 16, 11);
-      // Legs
+      ctx.fillRect(-8, baseTop + 13, 16, 11);
       ctx.fillStyle = '#1e293b';
-      ctx.fillRect(x - 6, y - 4, 4, 4);
-      ctx.fillRect(x + 2, y - 4, 4, 4);
+      ctx.fillRect(-6, -4, 4, 4);
+      ctx.fillRect(2, -4, 4, 4);
     }
 
     // 3. Head Accessory (avatar_head)
     const headId = p.equipped.avatar_head;
     if (headId === 'head_lofi_headphones') {
       ctx.fillStyle = '#ec4899';
-      ctx.fillRect(x - 10, baseTop + 1, 20, 3);
-      ctx.fillRect(x - 11, baseTop + 4, 4, 7);
-      ctx.fillRect(x + 7, baseTop + 4, 4, 7);
+      ctx.fillRect(-10, baseTop + 1, 20, 3);
+      ctx.fillRect(-11, baseTop + 4, 4, 7);
+      ctx.fillRect(7, baseTop + 4, 4, 7);
     } else if (headId === 'head_astronaut') {
       ctx.fillStyle = 'rgba(226, 232, 240, 0.45)';
-      ctx.fillRect(x - 11, baseTop - 2, 22, 16);
+      ctx.fillRect(-11, baseTop - 2, 22, 16);
       ctx.strokeStyle = '#f8fafc';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x - 11, baseTop - 2, 22, 16);
+      ctx.strokeRect(-11, baseTop - 2, 22, 16);
     } else if (headId === 'head_wizard') {
       ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(x - 12, baseTop, 24, 4);
-      ctx.fillRect(x - 8, baseTop - 6, 16, 6);
-      ctx.fillRect(x - 4, baseTop - 12, 8, 6);
+      ctx.fillRect(-12, baseTop, 24, 4);
+      ctx.fillRect(-8, baseTop - 6, 16, 6);
+      ctx.fillRect(-4, baseTop - 12, 8, 6);
       ctx.fillStyle = '#facc15';
-      ctx.fillRect(x - 1, baseTop - 8, 2, 2);
+      ctx.fillRect(-1, baseTop - 8, 2, 2);
     }
 
-    // 4. Host IDLE Animations (Section 2.1: beber café, digitar, cochilar, pescar)
+    // 4. Host IDLE Animations
     if (p.hostStatus === 'IDLE' && Math.abs((phys?.renderX || p.x) - p.targetX) < 2) {
-      this.drawIdleProp(ctx, x, baseTop, dir, p.idleActivity);
+      this.drawIdleProp(ctx, 0, baseTop, dir, p.idleActivity);
     }
+
+    ctx.restore();
 
     // 5. Synchronized Emote floating badge
     if (p.activeEmote && p.activeEmote.expiresAt > now) {
-      const floatY = baseTop - 16 + Math.round(Math.sin(this.tick * 0.15) * 3);
-      ctx.font = '13px sans-serif';
+      const floatY = y - 48 + Math.round(Math.sin(this.tick * 0.15) * 3);
+      ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(p.activeEmote.emote, x, floatY);
     }
@@ -1300,9 +1856,9 @@ export class PixelCanvasRenderer {
     ctx.font = 'bold 9px monospace';
     ctx.textAlign = 'center';
     const tag = p.userId === this.myUserId ? `${p.displayName} (Você)` : p.displayName;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     const textW = ctx.measureText(tag).width + 10;
-    ctx.fillRect(x - textW / 2, y + 3, textW, 12);
+    ctx.fillRect(x - textW / 2, y + 3, textW, 13);
 
     ctx.fillStyle =
       p.hostStatus === 'DND'
@@ -1322,7 +1878,6 @@ export class PixelCanvasRenderer {
     activity: string
   ) {
     if (activity === 'COFFEE') {
-      // Holding steaming mug
       const mx = x + dir * 11;
       const my = baseTop + 14;
       ctx.fillStyle = '#ffffff';
@@ -1330,7 +1885,6 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
       ctx.fillRect(mx - 1, my - 4 - ((this.tick >> 3) % 4), 2, 3);
     } else if (activity === 'TYPING') {
-      // Mini pixel laptop in front of avatar
       const lx = x + dir * 10;
       const ly = baseTop + 16;
       ctx.fillStyle = '#94a3b8';
@@ -1338,13 +1892,11 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(lx - 4, ly - 1, 8, 6);
     } else if (activity === 'SLEEPING') {
-      // Floating Zzz
       ctx.fillStyle = '#bae6fd';
       ctx.font = 'bold 9px monospace';
       const zOffset = (this.tick >> 2) % 12;
       ctx.fillText('Zzz', x + 10, baseTop - zOffset);
     } else if (activity === 'FISHING') {
-      // Fishing rod & bobber
       ctx.strokeStyle = '#fcd34d';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -1386,7 +1938,6 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = this.tick % 4 < 2 ? '#f472b6' : '#c084fc';
       ctx.fillRect(x - 5, y - 5, 10, 10);
     } else {
-      // Paper ball
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(x - 4, y - 4, 8, 8);
       ctx.fillStyle = '#cbd5e1';
@@ -1406,7 +1957,7 @@ export class PixelCanvasRenderer {
     skinId: string
   ) {
     ctx.save();
-    ctx.font = '10px monospace';
+    ctx.font = 'bold 10px monospace';
     const maxCharsPerLine = 24;
     const words = text.split(' ');
     const lines: string[] = [];
@@ -1430,7 +1981,6 @@ export class PixelCanvasRenderer {
     const clampedX = Math.max(boxW / 2 + 6, Math.min(PixelCanvasRenderer.WIDTH - boxW / 2 - 6, x));
     const topY = Math.max(6, y - boxH);
 
-    // Style according to Chat Skin
     let bg = '#ffffff';
     let border = '#0f172a';
     let textColor = '#0f172a';
@@ -1455,7 +2005,6 @@ export class PixelCanvasRenderer {
     ctx.lineWidth = 2;
     ctx.strokeRect(clampedX - boxW / 2, topY, boxW, boxH);
 
-    // Pointer triangle
     ctx.fillStyle = border;
     ctx.fillRect(clampedX - 3, topY + boxH, 6, 4);
 
@@ -1526,7 +2075,7 @@ export class PixelCanvasRenderer {
     this.drawChatBubble(
       ctx,
       Math.round(W / 2),
-      floorY - 42,
+      floorY - 48,
       'Meu Estilo! ✨',
       profile.equipped.chat_skin
     );

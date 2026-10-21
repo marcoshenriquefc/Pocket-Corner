@@ -156,6 +156,14 @@ export class PocketStore {
           { instanceId: `furn_${Date.now()}_2`, itemId: 'furn_gamer_chair', x: 110 },
           { instanceId: `furn_${Date.now()}_3`, itemId: 'furn_dining_table', x: 276 },
         ];
+      } else {
+        // Garante que cada móvel comprado tenha no máximo 1 unidade posicionada na sala
+        const seenItems = new Set<string>();
+        existing.placedFurniture = existing.placedFurniture.filter((f) => {
+          if (seenItems.has(f.itemId)) return false;
+          seenItems.add(f.itemId);
+          return true;
+        });
       }
 
       if (displayNameInput && displayNameInput.trim()) {
@@ -470,10 +478,17 @@ export class PocketStore {
     }
 
     if (!user.placedFurniture) user.placedFurniture = [];
-    if (user.placedFurniture.length >= 8) {
+    if (user.placedFurniture.some((f) => f.itemId === itemId)) {
       return {
         ok: false,
-        message: 'Sua sala já tem 8 móveis! Remova algum antes de colocar outro.',
+        message: `${item.icon} ${item.name} já está na sua sala! Você possui 1 unidade por móvel comprado.`,
+      };
+    }
+
+    if (user.placedFurniture.length >= 10) {
+      return {
+        ok: false,
+        message: 'Sua sala atingiu o limite de 10 móveis! Remova algum clicando com o botão direito.',
       };
     }
 
@@ -487,11 +502,12 @@ export class PocketStore {
       itemId,
       x: posX,
       flipped: false,
+      colorVariant: 'default',
     });
     this.saveDB();
     return {
       ok: true,
-      message: `${item.icon} ${item.name} colocado na sala! Arraste-o com o mouse para escolher a posição!`,
+      message: `${item.icon} ${item.name} colocado na sala! Arraste com o mouse ou clique com o botão direito para guardar.`,
     };
   }
 
@@ -516,6 +532,18 @@ export class PocketStore {
     if (!target) return false;
 
     target.flipped = !target.flipped;
+    this.saveDB();
+    return true;
+  }
+
+  public setFurnitureColor(userId: string, instanceId: string, colorVariant: string): boolean {
+    const user = this.db.users[userId];
+    if (!user || !user.placedFurniture) return false;
+
+    const target = user.placedFurniture.find((f) => f.instanceId === instanceId);
+    if (!target) return false;
+
+    target.colorVariant = String(colorVariant || 'default').slice(0, 20);
     this.saveDB();
     return true;
   }

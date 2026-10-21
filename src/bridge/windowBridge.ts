@@ -80,6 +80,12 @@ export class WindowBridge {
   }
 
   public toggleTransparentOverlay(force?: boolean): boolean {
+    if (!this.isDesktopWidgetMode) {
+      this.isTransparentOverlay = false;
+      document.documentElement.classList.remove('tauri-transparent-mode');
+      this.notifyModeChange();
+      return false;
+    }
     this.isTransparentOverlay =
       typeof force === 'boolean' ? force : !this.isTransparentOverlay;
     if (this.isTransparentOverlay) {
@@ -93,12 +99,12 @@ export class WindowBridge {
   }
 
   /**
-   * Fixa o bonequinho sem bordas e com fundo transparente no canto inferior direito do navegador
+   * Fixa o Cantinho no canto inferior direito da janela mantendo o tema escuro e botão de retorno visível
    */
-  public toggleBrowserCornerDock(): boolean {
-    this.isBrowserCornerDocked = !this.isBrowserCornerDocked;
+  public toggleBrowserCornerDock(force?: boolean): boolean {
+    this.isBrowserCornerDocked =
+      typeof force === 'boolean' ? force : !this.isBrowserCornerDocked;
     if (this.isBrowserCornerDocked) {
-      this.toggleTransparentOverlay(true);
       document.documentElement.classList.add('browser-corner-docked');
     } else {
       document.documentElement.classList.remove('browser-corner-docked');

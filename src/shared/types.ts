@@ -42,6 +42,7 @@ export interface PlacedFurnitureItem {
   itemId: string;
   x: number; // Posição no eixo X (24..336)
   flipped?: boolean;
+  colorVariant?: string;
 }
 
 export interface EquippedLoadout {
@@ -217,10 +218,11 @@ export interface ClientToServerEvents {
   // Coletar presente de mesa (AFK Gift) no chão
   'desk_drop:claim': (payload: { dropId: string }) => void;
 
-  // Mobiliar Cenário (Posicionar, Mover, Virar e Remover Móveis na Sala)
+  // Mobiliar Cenário (Posicionar, Mover, Virar, Cor e Remover Móveis na Sala)
   'furniture:place': (payload: { itemId: string; x?: number }) => void;
   'furniture:move': (payload: { instanceId: string; x: number }) => void;
   'furniture:flip': (payload: { instanceId: string }) => void;
+  'furniture:color': (payload: { instanceId: string; colorVariant: string }) => void;
   'furniture:remove': (payload: { instanceId: string }) => void;
 
   // Economia & Inventário (Server-Side Inventory Verification)

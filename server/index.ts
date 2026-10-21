@@ -909,13 +909,21 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     }
   });
 
+  socket.on('furniture:color', ({ instanceId, colorVariant }) => {
+    if (store.setFurnitureColor(userId, instanceId, colorVariant)) {
+      const updated = store.getUserById(userId);
+      if (updated) socket.emit('auth:profile', updated);
+      broadcastRoomState(userId);
+    }
+  });
+
   socket.on('furniture:remove', ({ instanceId }) => {
     if (store.removeFurniture(userId, instanceId)) {
       const updated = store.getUserById(userId);
       if (updated) socket.emit('auth:profile', updated);
       socket.emit('system:toast', {
         type: 'info',
-        message: '📦 Móvel guardado de volta no seu inventário!',
+        message: '📦 Móvel guardado de volta na sua Mochila!',
       });
       broadcastRoomState(userId);
     }
