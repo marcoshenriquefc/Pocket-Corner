@@ -141,24 +141,13 @@ class PocketCornerApp {
   }
 
   private loadSavedSession(): AuthSession | null {
-    const params = new URLSearchParams(window.location.search);
-    const urlUser = params.get('user');
-    if (urlUser && urlUser.trim()) {
-      const clean = urlUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-      return {
-        mode: 'local',
-        username: clean,
-        displayName: urlUser.trim(),
-      };
-    }
-
     try {
       const raw = localStorage.getItem(AUTH_SESSION_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as Partial<AuthSession>;
-      if (parsed && (parsed.googleId || parsed.username)) {
+      if (parsed && parsed.mode === 'google' && parsed.googleId) {
         return {
-          mode: parsed.mode === 'google' ? 'google' : 'local',
+          mode: 'google',
           googleId: parsed.googleId,
           email: parsed.email,
           googleName: parsed.googleName,
@@ -222,7 +211,7 @@ class PocketCornerApp {
           <div>
             <div class="login-title">Pocket Corner</div>
             <div class="login-subtitle" style="margin-top: 6px;">
-              Realize login para entrar no seu cantinho.<br/>
+              Realize login com sua conta Google para entrar no seu cantinho.<br/>
               Seus personagens, moedas e móveis ficam salvos na sua conta.
             </div>
           </div>
@@ -238,25 +227,9 @@ class PocketCornerApp {
                   </div>`
                 : `<div class="login-env-notice">
                     🔑 <b>Google OAuth aguardando chave:</b><br/>
-                    Adicione seu <code>GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code> na raiz do projeto para ativar o botão oficial do Google.
+                    Adicione seu <code>GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code> na raiz do projeto para ativar o login com o Google.
                   </div>`
           }
-
-          <div class="login-divider">ou acesso rápido</div>
-
-          <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-            <input
-              type="text"
-              id="login-quick-nickname"
-              class="chat-input-minimal"
-              maxlength="24"
-              placeholder="Digite seu Nickname para entrar..."
-              style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 12px; text-align: center;"
-            />
-            <button class="btn btn-primary" id="btn-login-quick" style="width: 100%; justify-content: center; padding: 10px;">
-              🚀 Entrar no Cantinho
-            </button>
-          </div>
         </div>
       </div>
     `;
@@ -264,30 +237,6 @@ class PocketCornerApp {
     if (hasValidClientId) {
       this.mountGoogleSignInButton();
     }
-
-    const quickInput = document.getElementById('login-quick-nickname') as HTMLInputElement | null;
-    const doQuickLogin = () => {
-      const rawName = quickInput?.value.trim() || `Player ${Math.floor(100 + Math.random() * 899)}`;
-      const cleanUsername =
-        rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 18) ||
-        `user_${Math.floor(100 + Math.random() * 899)}`;
-
-      this.saveAuthSession({
-        mode: 'local',
-        username: cleanUsername,
-        displayName: rawName.slice(0, 24),
-      });
-      this.hideLoginScreen();
-      this.connectSocket();
-    };
-
-    document.getElementById('btn-login-quick')?.addEventListener('click', doQuickLogin);
-    quickInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        doQuickLogin();
-      }
-    });
   }
 
   private mountGoogleSignInButton(attempt = 0) {
