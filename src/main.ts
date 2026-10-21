@@ -28,6 +28,45 @@ type ShopTab = 'AVATAR' | 'ROOM' | 'FX' | 'GACHA';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
 
+interface AuthSession {
+  mode: 'google' | 'local';
+  googleId?: string;
+  email?: string;
+  googleName?: string;
+  picture?: string;
+  username: string;
+  displayName: string;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential?: string }) => void;
+            auto_select?: boolean;
+          }) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: {
+              theme?: 'outline' | 'filled_blue' | 'filled_black';
+              size?: 'large' | 'medium' | 'small';
+              shape?: 'rectangular' | 'pill';
+              text?: 'signin_with' | 'signup_with' | 'continue_with';
+              width?: number;
+            }
+          ) => void;
+          disableAutoSelect: () => void;
+        };
+      };
+    };
+  }
+}
+
+const AUTH_SESSION_KEY = 'pc_auth_session';
+
 class PocketCornerApp {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
   private renderer!: PixelCanvasRenderer;
@@ -35,6 +74,12 @@ class PocketCornerApp {
   private profile: UserProfile | null = null;
   private room: RoomSnapshot | null = null;
   private directory: OnlineDirectoryEntry[] = [];
+
+  private authSession: AuthSession | null = null;
+  private googleClientId = (
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_GOOGLE_CLIENT_ID || ''
+  ).trim();
+  private mongoConnected = false;
 
   private activeModal: ActiveModal = 'NONE';
   private shopTab: ShopTab = 'AVATAR';
@@ -55,50 +100,260 @@ class PocketCornerApp {
   private floatingDockEl!: HTMLElement;
   private toastStackEl!: HTMLElement;
   private modalRootEl!: HTMLElement;
+  private loginScreenRootEl!: HTMLElement;
 
   constructor() {
     this.initDOM();
-    this.connectSocket();
     this.setupKeyboardAndFocusListeners();
+    void this.bootstrapAuth();
   }
 
-  private getInitialIdentity(): { username: string; displayName: string } {
+  private async bootstrapAuth() {
     const params = new URLSearchParams(window.location.search);
-    const urlUser = params.get('user');
     const urlVisit = params.get('visit');
     if (urlVisit) {
       this.pendingVisitParam = urlVisit;
     }
 
+    // Busca configuração de OAuth e status do MongoDB do backend
+    try {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/auth/config`);
+      if (res.ok) {
+        const cfg = (await res.json()) as { googleClientId?: string; mongoConnected?: boolean };
+        if (cfg.googleClientId) {
+          this.googleClientId = cfg.googleClientId.trim();
+        }
+        this.mongoConnected = Boolean(cfg.mongoConnected);
+      }
+    } catch {
+      // Ignora erro de rede inicial
+    }
+
+    const saved = this.loadSavedSession();
+    if (saved) {
+      this.authSession = saved;
+      this.hideLoginScreen();
+      this.connectSocket();
+    } else {
+      this.renderLoginScreen();
+    }
+  }
+
+  private loadSavedSession(): AuthSession | null {
+    const params = new URLSearchParams(window.location.search);
+    const urlUser = params.get('user');
     if (urlUser && urlUser.trim()) {
       const clean = urlUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-      sessionStorage.setItem('pc_username', clean);
-      sessionStorage.setItem('pc_displayName', urlUser.trim());
-      return { username: clean, displayName: urlUser.trim() };
+      return {
+        mode: 'local',
+        username: clean,
+        displayName: urlUser.trim(),
+      };
     }
 
-    const sessionUser = sessionStorage.getItem('pc_username');
-    const sessionDisplay = sessionStorage.getItem('pc_displayName');
-    if (sessionUser) {
-      return { username: sessionUser, displayName: sessionDisplay || sessionUser };
+    try {
+      const raw = localStorage.getItem(AUTH_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<AuthSession>;
+      if (parsed && (parsed.googleId || parsed.username)) {
+        return {
+          mode: parsed.mode === 'google' ? 'google' : 'local',
+          googleId: parsed.googleId,
+          email: parsed.email,
+          googleName: parsed.googleName,
+          picture: parsed.picture,
+          username: parsed.username || 'jogador',
+          displayName: parsed.displayName || parsed.googleName || parsed.username || 'Jogador',
+        };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private saveAuthSession(session: AuthSession) {
+    this.authSession = session;
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+    localStorage.setItem('pc_username', session.username);
+    localStorage.setItem('pc_displayName', session.displayName);
+    sessionStorage.setItem('pc_username', session.username);
+    sessionStorage.setItem('pc_displayName', session.displayName);
+  }
+
+  private logoutAccount() {
+    this.authSession = null;
+    this.profile = null;
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    localStorage.removeItem('pc_username');
+    localStorage.removeItem('pc_displayName');
+    sessionStorage.removeItem('pc_username');
+    sessionStorage.removeItem('pc_displayName');
+
+    try {
+      window.google?.accounts?.id?.disableAutoSelect();
+    } catch {
+      // Ignore
     }
 
-    const localUser = localStorage.getItem('pc_username');
-    const localDisplay = localStorage.getItem('pc_displayName');
-    if (localUser) {
-      sessionStorage.setItem('pc_username', localUser);
-      sessionStorage.setItem('pc_displayName', localDisplay || localUser);
-      return { username: localUser, displayName: localDisplay || localUser };
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+    this.closeModal();
+    this.renderLoginScreen();
+    this.showToast('info', '🚪 Você saiu da sua conta.');
+  }
+
+  private hideLoginScreen() {
+    if (this.loginScreenRootEl) {
+      this.loginScreenRootEl.innerHTML = '';
+    }
+  }
+
+  private renderLoginScreen() {
+    const isSecretInsteadOfId = this.googleClientId.startsWith('GOCSPX-');
+    const hasValidClientId = Boolean(this.googleClientId) && !isSecretInsteadOfId;
+
+    this.loginScreenRootEl.innerHTML = `
+      <div class="login-screen-overlay">
+        <div class="login-card">
+          <div class="login-logo-badge">🐾</div>
+          <div>
+            <div class="login-title">Pocket Corner</div>
+            <div class="login-subtitle" style="margin-top: 6px;">
+              Realize login para entrar no seu cantinho.<br/>
+              Seus personagens, moedas e móveis ficam salvos na sua conta.
+            </div>
+          </div>
+
+          ${
+            hasValidClientId
+              ? `<div class="google-btn-container" id="google-btn-mount"></div>`
+              : isSecretInsteadOfId
+                ? `<div class="login-env-notice">
+                    ⚠️ <b>Atenção no arquivo <code>.env</code>:</b><br/>
+                    Você colou a <b>Chave Secreta</b> (que começa com <code>GOCSPX-...</code>) no lugar do <b>ID do Cliente</b>.<br/><br/>
+                    No Google Cloud, copie o <b>ID do cliente</b> (que começa com <code>614958022711-...</code> e termina com <code>.apps.googleusercontent.com</code>) e cole em <code>GOOGLE_CLIENT_ID</code> e <code>VITE_GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code>!
+                  </div>`
+                : `<div class="login-env-notice">
+                    🔑 <b>Google OAuth aguardando chave:</b><br/>
+                    Adicione seu <code>GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code> na raiz do projeto para ativar o botão oficial do Google.
+                  </div>`
+          }
+
+          <div class="login-divider">ou acesso rápido</div>
+
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+            <input
+              type="text"
+              id="login-quick-nickname"
+              class="chat-input-minimal"
+              maxlength="24"
+              placeholder="Digite seu Nickname para entrar..."
+              style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 12px; text-align: center;"
+            />
+            <button class="btn btn-primary" id="btn-login-quick" style="width: 100%; justify-content: center; padding: 10px;">
+              🚀 Entrar no Cantinho
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (hasValidClientId) {
+      this.mountGoogleSignInButton();
     }
 
-    const randomSuffix = Math.floor(100 + Math.random() * 899);
-    const defaultUser = `dev_${randomSuffix}`;
-    const defaultDisplay = `Dev #${randomSuffix}`;
-    localStorage.setItem('pc_username', defaultUser);
-    localStorage.setItem('pc_displayName', defaultDisplay);
-    sessionStorage.setItem('pc_username', defaultUser);
-    sessionStorage.setItem('pc_displayName', defaultDisplay);
-    return { username: defaultUser, displayName: defaultDisplay };
+    const quickInput = document.getElementById('login-quick-nickname') as HTMLInputElement | null;
+    const doQuickLogin = () => {
+      const rawName = quickInput?.value.trim() || `Player ${Math.floor(100 + Math.random() * 899)}`;
+      const cleanUsername =
+        rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 18) ||
+        `user_${Math.floor(100 + Math.random() * 899)}`;
+
+      this.saveAuthSession({
+        mode: 'local',
+        username: cleanUsername,
+        displayName: rawName.slice(0, 24),
+      });
+      this.hideLoginScreen();
+      this.connectSocket();
+    };
+
+    document.getElementById('btn-login-quick')?.addEventListener('click', doQuickLogin);
+    quickInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doQuickLogin();
+      }
+    });
+  }
+
+  private mountGoogleSignInButton(attempt = 0) {
+    const mountEl = document.getElementById('google-btn-mount');
+    if (!mountEl) return;
+
+    const gId = window.google?.accounts?.id;
+    if (!gId) {
+      if (attempt < 20) {
+        setTimeout(() => this.mountGoogleSignInButton(attempt + 1), 250);
+      } else {
+        mountEl.innerHTML = `<div style="font-size:0.75rem; color: var(--text-secondary);">Não foi possível carregar o script do Google. Verifique sua conexão.</div>`;
+      }
+      return;
+    }
+
+    gId.initialize({
+      client_id: this.googleClientId,
+      callback: (resp) => {
+        if (resp.credential) {
+          void this.handleGoogleCredential(resp.credential);
+        }
+      },
+    });
+
+    gId.renderButton(mountEl, {
+      theme: 'filled_blue',
+      size: 'large',
+      shape: 'pill',
+      text: 'continue_with',
+      width: 300,
+    });
+  }
+
+  private async handleGoogleCredential(credential: string) {
+    try {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      });
+
+      const data = (await res.json()) as { ok?: boolean; profile?: UserProfile; error?: string };
+      if (!res.ok || !data.profile) {
+        this.showToast('error', data.error || 'Falha ao autenticar com o Google.');
+        return;
+      }
+
+      const p = data.profile;
+      this.saveAuthSession({
+        mode: 'google',
+        googleId: p.googleId,
+        email: p.email,
+        googleName: p.googleName || p.displayName,
+        picture: p.picture,
+        username: p.username,
+        displayName: p.displayName,
+      });
+
+      this.hideLoginScreen();
+      this.connectSocket();
+      this.showToast('success', `✨ Conectado como ${p.displayName}!`);
+    } catch (err) {
+      this.showToast('error', `Erro ao conectar com servidor: ${(err as Error).message}`);
+    }
   }
 
   private initDOM() {
@@ -153,6 +408,7 @@ class PocketCornerApp {
 
       <div class="toast-stack" id="toast-stack"></div>
       <div id="modal-root"></div>
+      <div id="login-screen-root"></div>
     `;
 
     this.topbarEl = document.getElementById('minimal-topbar')!;
@@ -163,6 +419,7 @@ class PocketCornerApp {
     this.floatingDockEl = document.getElementById('floating-dock')!;
     this.toastStackEl = document.getElementById('toast-stack')!;
     this.modalRootEl = document.getElementById('modal-root')!;
+    this.loginScreenRootEl = document.getElementById('login-screen-root')!;
 
     const canvas = document.getElementById('pocket-canvas') as HTMLCanvasElement;
     this.renderer = new PixelCanvasRenderer(canvas, {
@@ -279,7 +536,11 @@ class PocketCornerApp {
   }
 
   private connectSocket() {
-    const identity = this.getInitialIdentity();
+    const session = this.authSession || {
+      mode: 'local',
+      username: 'visitante',
+      displayName: 'Visitante',
+    };
 
     if (this.socket) {
       this.socket.disconnect();
@@ -288,14 +549,29 @@ class PocketCornerApp {
     const baseUrl = getApiBaseUrl();
     const socketOpts = {
       auth: {
-        username: identity.username,
-        displayName: identity.displayName,
+        googleId: session.googleId || '',
+        email: session.email || '',
+        googleName: session.googleName || '',
+        picture: session.picture || '',
+        username: session.username,
+        displayName: session.displayName,
       },
     };
     this.socket = baseUrl ? io(baseUrl, socketOpts) : io(socketOpts);
 
     this.socket.on('auth:profile', (profile) => {
       this.profile = profile;
+      if (this.authSession) {
+        this.saveAuthSession({
+          ...this.authSession,
+          googleId: profile.googleId || this.authSession.googleId,
+          email: profile.email || this.authSession.email,
+          googleName: profile.googleName || this.authSession.googleName,
+          picture: profile.picture || this.authSession.picture,
+          username: profile.username,
+          displayName: profile.displayName,
+        });
+      }
       this.renderer.setIdentity(profile.id);
       this.renderTopbar();
       this.renderFloatingDock();
@@ -457,7 +733,7 @@ class PocketCornerApp {
 
     this.topbarEl.innerHTML = `
       <div class="topbar-left">
-        <button class="profile-chip" id="btn-open-profile" title="Trocar de perfil ou configurar servidor">
+        <button class="profile-chip" id="btn-open-profile" title="Alterar Nickname da Sala ou Ver Conta">
           <span class="status-dot ${this.profile.hostStatus}"></span>
           <span>${this.escapeHtml(this.profile.displayName)}</span>
         </button>
@@ -486,6 +762,9 @@ class PocketCornerApp {
         <button class="btn btn-sm ${isVideoPiP ? 'active-toggle' : 'btn-primary'}" id="btn-top-pip" title="Destacar janelinha Picture-in-Picture sem barra de título">
           📺 ${isVideoPiP ? 'Sair PiP' : 'PiP Flutuante'}
         </button>
+        <button class="btn btn-sm btn-danger" id="btn-top-logout" title="Sair da conta">
+          Sair
+        </button>
       </div>
     `;
 
@@ -509,6 +788,10 @@ class PocketCornerApp {
       } catch (err) {
         this.showToast('warning', (err as Error).message);
       }
+    });
+
+    document.getElementById('btn-top-logout')?.addEventListener('click', () => {
+      this.logoutAccount();
     });
   }
 
@@ -1315,47 +1598,96 @@ class PocketCornerApp {
   }
 
   // ------------------------------------------
-  // 4. POPUP DE PERFIL / SERVIDOR ONLINE
+  // 4. POPUP DE PERFIL / CONTA GOOGLE & NICKNAME
   // ------------------------------------------
   private renderProfilePopup() {
     const currentServerUrl = localStorage.getItem('pc_server_url') || '';
+    const isGoogleLinked = Boolean(this.profile?.googleId);
+    const googleName = this.profile?.googleName || this.authSession?.googleName || '';
+    const googleEmail = this.profile?.email || this.authSession?.email || '';
+    const googlePic = this.profile?.picture || this.authSession?.picture || '';
 
     this.modalRootEl.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop">
-        <div class="popup-window" style="max-width: 420px;">
+        <div class="popup-window" style="max-width: 430px;">
           <div class="popup-header">
-            <div class="popup-title">👤 Meu Perfil</div>
+            <div class="popup-title">👤 Minha Conta & Nickname</div>
             <button class="btn btn-icon" id="btn-close-modal">✕</button>
           </div>
           <div class="popup-body">
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              <label style="font-size: 0.74rem; color: var(--text-secondary);">@username</label>
-              <input
-                type="text"
-                id="modal-username"
-                class="chat-input-minimal"
-                style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                value="${this.escapeHtml(this.profile?.username || '')}"
-              />
-              <label style="font-size: 0.74rem; color: var(--text-secondary);">Nome de Exibição</label>
-              <input
-                type="text"
-                id="modal-displayname"
-                class="chat-input-minimal"
-                style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                value="${this.escapeHtml(this.profile?.displayName || '')}"
-              />
-              <label style="font-size: 0.74rem; color: var(--text-secondary);">Servidor Online (opcional)</label>
-              <input
-                type="text"
-                id="modal-server-url"
-                class="chat-input-minimal"
-                style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                value="${this.escapeHtml(currentServerUrl)}"
-                placeholder="Padrão local ou https://..."
-              />
-              <button class="btn btn-primary" id="btn-save-profile" style="justify-content: center; margin-top: 6px; padding: 9px;">
-                Salvar Perfil
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              ${
+                isGoogleLinked
+                  ? `<div class="google-account-box">
+                      ${
+                        googlePic
+                          ? `<img src="${this.escapeHtml(googlePic)}" class="google-avatar-img" alt="Google" />`
+                          : `<div class="item-icon">🔐</div>`
+                      }
+                      <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary);">
+                          ${this.escapeHtml(googleName)}
+                        </div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">
+                          ${this.escapeHtml(googleEmail || 'Conta Google vinculada')}
+                        </div>
+                        <div style="font-size: 0.66rem; color: var(--accent-green); margin-top: 2px;">
+                          ✓ Conta única vinculada (@${this.escapeHtml(this.profile?.username || '')})
+                        </div>
+                      </div>
+                    </div>`
+                  : `<div class="google-account-box">
+                      <div class="item-icon">👤</div>
+                      <div style="flex: 1;">
+                        <div style="font-size: 0.8rem; font-weight: 700;">Sessão Local (@${this.escapeHtml(this.profile?.username || '')})</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">
+                          Clique em "Sair da Conta" abaixo se quiser entrar com o Google.
+                        </div>
+                      </div>
+                    </div>`
+              }
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 0.74rem; color: var(--text-secondary);">
+                  Nickname que aparece na sala (em cima do bonequinho)
+                </label>
+                <input
+                  type="text"
+                  id="modal-displayname"
+                  maxlength="24"
+                  class="chat-input-minimal"
+                  style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 9px 12px;"
+                  value="${this.escapeHtml(this.profile?.displayName || '')}"
+                />
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 0.74rem; color: var(--text-secondary);">
+                  Servidor Online (opcional)
+                </label>
+                <input
+                  type="text"
+                  id="modal-server-url"
+                  class="chat-input-minimal"
+                  style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 9px 12px;"
+                  value="${this.escapeHtml(currentServerUrl)}"
+                  placeholder="Padrão local ou https://..."
+                />
+              </div>
+
+              <div style="font-size: 0.7rem; color: var(--text-muted); display: flex; justify-content: space-between;">
+                <span>Banco de Dados:</span>
+                <span style="color: ${this.mongoConnected ? 'var(--accent-green)' : 'var(--accent-gold)'};">
+                  ${this.mongoConnected ? '☁️ MongoDB Atlas Conectado' : '📁 Local (db.json)'}
+                </span>
+              </div>
+
+              <button class="btn btn-primary" id="btn-save-profile" style="justify-content: center; padding: 10px;">
+                💾 Salvar Nickname
+              </button>
+
+              <button class="btn btn-danger" id="btn-logout-account" style="justify-content: center; padding: 9px;">
+                🚪 Sair da Conta (Logout)
               </button>
             </div>
           </div>
@@ -1366,25 +1698,36 @@ class PocketCornerApp {
     this.bindCommonPopupEvents();
 
     document.getElementById('btn-save-profile')?.addEventListener('click', () => {
-      const uInp = (document.getElementById('modal-username') as HTMLInputElement).value.trim();
       const dInp = (document.getElementById('modal-displayname') as HTMLInputElement).value.trim();
       const sInp = (document.getElementById('modal-server-url') as HTMLInputElement).value.trim();
-      if (!uInp) return;
+      if (!dInp) return;
 
-      const clean = uInp.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-      localStorage.setItem('pc_username', clean);
-      localStorage.setItem('pc_displayName', dInp || clean);
-      sessionStorage.setItem('pc_username', clean);
-      sessionStorage.setItem('pc_displayName', dInp || clean);
+      const prevServerUrl = localStorage.getItem('pc_server_url') || '';
+      const cleanServerUrl = sInp ? sInp.replace(/\/+$/, '') : '';
 
-      if (sInp) {
-        localStorage.setItem('pc_server_url', sInp.replace(/\/+$/, ''));
+      if (cleanServerUrl) {
+        localStorage.setItem('pc_server_url', cleanServerUrl);
       } else {
         localStorage.removeItem('pc_server_url');
       }
 
+      if (this.authSession) {
+        this.saveAuthSession({
+          ...this.authSession,
+          displayName: dInp.slice(0, 24),
+        });
+      }
+
+      this.socket.emit('profile:update_nickname', { displayName: dInp.slice(0, 24) });
       this.closeModal();
-      this.connectSocket();
+
+      if (prevServerUrl !== cleanServerUrl) {
+        this.connectSocket();
+      }
+    });
+
+    document.getElementById('btn-logout-account')?.addEventListener('click', () => {
+      this.logoutAccount();
     });
   }
 

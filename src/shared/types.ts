@@ -70,6 +70,10 @@ export interface UserProfile {
   id: string;
   username: string;
   displayName: string;
+  googleId?: string;
+  email?: string;
+  googleName?: string;
+  picture?: string;
   coins: number;
   gems: number;
   inventory: string[]; // Array of owned item_ids (verified server-side)
@@ -230,6 +234,9 @@ export interface ClientToServerEvents {
   'shop:buy': (payload: { itemId: string }) => void;
   'shop:gachapon': () => void;
   'economy:claim_starter_pack': () => void;
+
+  // Perfil (Alterar Nickname na Sala mantendo vínculo com a conta Google)
+  'profile:update_nickname': (payload: { displayName: string }) => void;
 
   // 6.2. Grafo Social de Amizade (PENDING -> ACCEPTED)
   'friends:add': (payload: { usernameOrId: string }) => void;

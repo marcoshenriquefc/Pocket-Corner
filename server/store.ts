@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Collection, MongoClient } from 'mongodb';
 import {
   COSMETIC_CATALOG,
   DEFAULT_EQUIPPED,
@@ -26,6 +27,11 @@ interface PersistentDB {
   deskDropsByHost: Record<string, DeskDropInstance[]>;
 }
 
+interface MongoStateDoc extends PersistentDB {
+  _id: string;
+  updatedAt: number;
+}
+
 export interface EphemeralRoomState {
   hostUserId: string;
   players: Map<string, RoomPlayerState>; // userId -> state in this room
@@ -39,6 +45,7 @@ interface TokenBucketState {
 
 const DATA_DIR = path.resolve(process.cwd(), 'server', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const MONGO_DOC_ID = 'pocket_corner_db';
 
 export const BOT_USER_ID = 'usr_bot_pipoca';
 
@@ -47,6 +54,12 @@ export class PocketStore {
     users: {},
     deskDropsByHost: {},
   };
+
+  // MongoDB Atlas Cloud Persistence
+  public isMongoConnected = false;
+  private mongoClient: MongoClient | null = null;
+  private mongoCollection: Collection<MongoStateDoc> | null = null;
+  private mongoSaveTimer: NodeJS.Timeout | null = null;
 
   // Redis-like ephemeral state in memory
   public rooms = new Map<string, EphemeralRoomState>(); // hostUserId -> room
@@ -62,6 +75,54 @@ export class PocketStore {
   constructor() {
     this.loadDB();
     this.ensureCompanionBot();
+  }
+
+  /**
+   * Conecta ao MongoDB Atlas (se MONGODB_URI estiver definido no .env)
+   * e sincroniza os perfis de usuários, moedas, inventário e móveis na nuvem.
+   */
+  public async initMongo(mongoUri?: string): Promise<boolean> {
+    const cleanUri = mongoUri?.trim();
+    if (!cleanUri) {
+      console.log(
+        '📁 [PocketStore] MONGODB_URI vazio no .env — usando banco local (server/data/db.json).'
+      );
+      return false;
+    }
+
+    try {
+      this.mongoClient = new MongoClient(cleanUri);
+      await this.mongoClient.connect();
+      const database = this.mongoClient.db('pocket_corner');
+      this.mongoCollection = database.collection<MongoStateDoc>('app_state');
+      this.isMongoConnected = true;
+
+      const cloudDoc = await this.mongoCollection.findOne({ _id: MONGO_DOC_ID });
+      if (cloudDoc) {
+        this.db.users = { ...this.db.users, ...(cloudDoc.users || {}) };
+        this.db.deskDropsByHost = {
+          ...this.db.deskDropsByHost,
+          ...(cloudDoc.deskDropsByHost || {}),
+        };
+        this.ensureCompanionBot();
+        this.writeLocalFileSync();
+        console.log(
+          `☁️ [PocketStore] Conectado ao MongoDB Atlas! (${Object.keys(this.db.users).length} contas sincronizadas)`
+        );
+      } else {
+        await this.flushToMongo();
+        console.log('☁️ [PocketStore] Conectado ao MongoDB Atlas! Estado inicial criado na nuvem.');
+      }
+      return true;
+    } catch (err) {
+      this.isMongoConnected = false;
+      this.mongoCollection = null;
+      console.error(
+        '⚠️ [PocketStore] Falha ao conectar no MongoDB Atlas. Usando fallback local (db.json):',
+        (err as Error).message
+      );
+      return false;
+    }
   }
 
   private loadDB(): void {
@@ -80,7 +141,7 @@ export class PocketStore {
     }
   }
 
-  public saveDB(): void {
+  private writeLocalFileSync(): void {
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -88,6 +149,39 @@ export class PocketStore {
       fs.writeFileSync(DB_FILE, JSON.stringify(this.db, null, 2), 'utf-8');
     } catch (err) {
       console.error('[PocketStore] Error saving db.json:', err);
+    }
+  }
+
+  private async flushToMongo(): Promise<void> {
+    if (!this.mongoCollection) return;
+    try {
+      await this.mongoCollection.updateOne(
+        { _id: MONGO_DOC_ID },
+        {
+          $set: {
+            users: this.db.users,
+            deskDropsByHost: this.db.deskDropsByHost,
+            updatedAt: Date.now(),
+          },
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.error('[PocketStore] Erro ao salvar no MongoDB Atlas:', (err as Error).message);
+    }
+  }
+
+  public saveDB(): void {
+    this.writeLocalFileSync();
+
+    if (this.mongoCollection) {
+      if (this.mongoSaveTimer) {
+        clearTimeout(this.mongoSaveTimer);
+      }
+      this.mongoSaveTimer = setTimeout(() => {
+        this.mongoSaveTimer = null;
+        void this.flushToMongo();
+      }, 200);
     }
   }
 
@@ -129,6 +223,128 @@ export class PocketStore {
     this.ensureRoom(BOT_USER_ID);
   }
 
+  private normalizeExistingUser(existing: UserProfile): UserProfile {
+    for (const starterId of STARTER_INVENTORY_IDS) {
+      if (!existing.inventory.includes(starterId)) {
+        existing.inventory.push(starterId);
+      }
+    }
+    if (!existing.friends) existing.friends = [];
+    if (!existing.pendingIncomingFriends) existing.pendingIncomingFriends = [];
+    if (!existing.pendingOutgoingFriends) existing.pendingOutgoingFriends = [];
+    if (!existing.placedFurniture) {
+      existing.placedFurniture = [
+        { instanceId: `furn_${Date.now()}_1`, itemId: 'furn_gamer_setup', x: 76 },
+        { instanceId: `furn_${Date.now()}_2`, itemId: 'furn_gamer_chair', x: 110 },
+        { instanceId: `furn_${Date.now()}_3`, itemId: 'furn_dining_table', x: 276 },
+      ];
+    } else {
+      // Garante que cada móvel comprado tenha no máximo 1 unidade posicionada na sala
+      const seenItems = new Set<string>();
+      existing.placedFurniture = existing.placedFurniture.filter((f) => {
+        if (seenItems.has(f.itemId)) return false;
+        seenItems.add(f.itemId);
+        return true;
+      });
+    }
+    if (!existing.friends.includes(BOT_USER_ID) && existing.id !== BOT_USER_ID) {
+      existing.friends.push(BOT_USER_ID);
+    }
+    return existing;
+  }
+
+  /**
+   * Busca ou cria conta única vinculada ao Google (1 conta por Google ID).
+   * Na criação inicial, define o nome da conta Google como displayName,
+   * mas preserva o nickname personalizado pelo jogador nos logins futuros.
+   */
+  public getOrCreateGoogleUser(params: {
+    googleId: string;
+    email?: string;
+    googleName: string;
+    picture?: string;
+  }): UserProfile {
+    const cleanGoogleId = params.googleId.trim();
+    const cleanEmail = params.email?.trim().toLowerCase();
+    const cleanGoogleName = (params.googleName || 'Jogador Google').trim().slice(0, 40);
+
+    const existing = Object.values(this.db.users).find(
+      (u) =>
+        u.googleId === cleanGoogleId ||
+        (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail)
+    );
+
+    if (existing) {
+      this.normalizeExistingUser(existing);
+      existing.googleId = cleanGoogleId;
+      if (cleanEmail) existing.email = cleanEmail;
+      existing.googleName = cleanGoogleName;
+      if (params.picture) existing.picture = params.picture;
+
+      this.saveDB();
+      this.loadSessionCosmetics(existing.id);
+      return existing;
+    }
+
+    // Gera @username único baseado no email ou nome do Google
+    const baseRaw = cleanEmail
+      ? cleanEmail.split('@')[0]
+      : cleanGoogleName.toLowerCase().replace(/\s+/g, '_');
+    const baseClean = baseRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 16) || 'player';
+    let candidateUsername = baseClean;
+    let counter = 1;
+    while (
+      Object.values(this.db.users).some(
+        (u) => u.username.toLowerCase() === candidateUsername.toLowerCase()
+      )
+    ) {
+      counter++;
+      candidateUsername = `${baseClean.slice(0, 13)}_${counter}`;
+    }
+
+    const id = `usr_g_${cleanGoogleId.slice(-10)}_${Math.random().toString(36).slice(2, 6)}`;
+    const newUser: UserProfile = {
+      id,
+      username: candidateUsername,
+      displayName: cleanGoogleName.slice(0, 24),
+      googleId: cleanGoogleId,
+      email: cleanEmail,
+      googleName: cleanGoogleName,
+      picture: params.picture,
+      coins: 240,
+      gems: 150,
+      inventory: [...STARTER_INVENTORY_IDS],
+      equipped: { ...DEFAULT_EQUIPPED },
+      placedFurniture: [
+        { instanceId: `furn_${Date.now()}_1`, itemId: 'furn_gamer_setup', x: 76 },
+        { instanceId: `furn_${Date.now()}_2`, itemId: 'furn_gamer_chair', x: 110 },
+        { instanceId: `furn_${Date.now()}_3`, itemId: 'furn_dining_table', x: 276 },
+      ],
+      friends: [BOT_USER_ID],
+      pendingIncomingFriends: [],
+      pendingOutgoingFriends: [],
+      hostStatus: 'ACTIVE',
+      doorPermission: 'OPEN',
+      createdAt: Date.now(),
+    };
+
+    this.db.users[id] = newUser;
+    this.db.deskDropsByHost[id] = [
+      {
+        id: `drop_welcome_${Date.now()}`,
+        itemId: 'drop_coffee',
+        fromUserId: BOT_USER_ID,
+        fromDisplayName: 'Pipoca (Bot Amigo)',
+        x: 230,
+        note: 'Bem-vindo ao seu cantinho! Clique no café para ganhar velocidade! ☕',
+        createdAt: Date.now(),
+      },
+    ];
+    this.saveDB();
+    this.loadSessionCosmetics(id);
+    return newUser;
+  }
+
   public getOrCreateUser(usernameInput: string, displayNameInput?: string): UserProfile {
     const cleanUsername =
       usernameInput
@@ -142,35 +358,9 @@ export class PocketStore {
     );
 
     if (existing) {
-      for (const starterId of STARTER_INVENTORY_IDS) {
-        if (!existing.inventory.includes(starterId)) {
-          existing.inventory.push(starterId);
-        }
-      }
-      if (!existing.friends) existing.friends = [];
-      if (!existing.pendingIncomingFriends) existing.pendingIncomingFriends = [];
-      if (!existing.pendingOutgoingFriends) existing.pendingOutgoingFriends = [];
-      if (!existing.placedFurniture) {
-        existing.placedFurniture = [
-          { instanceId: `furn_${Date.now()}_1`, itemId: 'furn_gamer_setup', x: 76 },
-          { instanceId: `furn_${Date.now()}_2`, itemId: 'furn_gamer_chair', x: 110 },
-          { instanceId: `furn_${Date.now()}_3`, itemId: 'furn_dining_table', x: 276 },
-        ];
-      } else {
-        // Garante que cada móvel comprado tenha no máximo 1 unidade posicionada na sala
-        const seenItems = new Set<string>();
-        existing.placedFurniture = existing.placedFurniture.filter((f) => {
-          if (seenItems.has(f.itemId)) return false;
-          seenItems.add(f.itemId);
-          return true;
-        });
-      }
-
-      if (displayNameInput && displayNameInput.trim()) {
+      this.normalizeExistingUser(existing);
+      if (displayNameInput && displayNameInput.trim() && !existing.googleId) {
         existing.displayName = displayNameInput.trim().slice(0, 24);
-      }
-      if (!existing.friends.includes(BOT_USER_ID) && existing.id !== BOT_USER_ID) {
-        existing.friends.push(BOT_USER_ID);
       }
       this.saveDB();
       this.loadSessionCosmetics(existing.id);
@@ -216,8 +406,39 @@ export class PocketStore {
     return newUser;
   }
 
+  public updateUserNickname(userId: string, rawNickname: string): UserProfile | null {
+    const user = this.db.users[userId];
+    if (!user) return null;
+
+    const cleanNickname = rawNickname
+      .replace(/<[^>]*>?/gm, '')
+      .replace(/[\u0000-\u001F\u007F]/g, '')
+      .trim()
+      .slice(0, 24);
+
+    if (!cleanNickname) return null;
+
+    user.displayName = cleanNickname;
+
+    // Atualiza nas salas ativas em tempo real
+    for (const room of this.rooms.values()) {
+      const player = room.players.get(userId);
+      if (player) {
+        player.displayName = cleanNickname;
+      }
+    }
+
+    this.saveDB();
+    return user;
+  }
+
   public getUserById(userId: string): UserProfile | undefined {
     return this.db.users[userId];
+  }
+
+  public getUserByGoogleId(googleId: string): UserProfile | undefined {
+    const clean = googleId.trim();
+    return Object.values(this.db.users).find((u) => u.googleId === clean);
   }
 
   public findUserByUsernameOrId(query: string): UserProfile | undefined {

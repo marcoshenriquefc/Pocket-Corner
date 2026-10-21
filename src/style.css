@@ -712,3 +712,119 @@ html.desktop-widget-only .minimal-shell {
 .toast-item.error {
   border-left-color: var(--accent-danger);
 }
+
+/* ==========================================
+   Tela Inicial Minimalista de "Realizar Login"
+   ========================================== */
+.login-screen-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 35%, #162038 0%, #090d16 75%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 390px;
+  background: rgba(17, 24, 39, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75);
+}
+
+.login-logo-badge {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(56, 189, 248, 0.2));
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25);
+}
+
+.login-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.login-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.google-btn-container {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.login-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  margin: 2px 0;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.login-env-notice {
+  width: 100%;
+  background: rgba(250, 204, 21, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.73rem;
+  color: #fde047;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.google-account-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.google-avatar-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+

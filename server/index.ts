@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
@@ -234,6 +236,79 @@ app.get('/api/catalog', (_req, res) => {
   res.json({ items: COSMETIC_CATALOG });
 });
 
+app.get('/api/auth/config', async (_req, res) => {
+  dotenv.config({ override: true });
+  if (!store.isMongoConnected && process.env.MONGODB_URI?.trim()) {
+    await store.initMongo(process.env.MONGODB_URI);
+  }
+  const googleClientId =
+    (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  res.json({
+    googleClientId,
+    mongoConnected: store.isMongoConnected,
+  });
+});
+
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = (req.body || {}) as { credential?: string };
+  if (!credential || !credential.trim()) {
+    res.status(400).json({ error: 'Token do Google ausente.' });
+    return;
+  }
+
+  try {
+    const verifyRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential.trim())}`
+    );
+    if (!verifyRes.ok) {
+      res.status(401).json({ error: 'Token do Google inválido ou expirado.' });
+      return;
+    }
+
+    const tokenInfo = (await verifyRes.json()) as {
+      sub?: string;
+      email?: string;
+      name?: string;
+      given_name?: string;
+      picture?: string;
+      aud?: string;
+    };
+
+    const expectedClientId = (
+      process.env.GOOGLE_CLIENT_ID ||
+      process.env.VITE_GOOGLE_CLIENT_ID ||
+      ''
+    ).trim();
+
+    if (expectedClientId && tokenInfo.aud && tokenInfo.aud !== expectedClientId) {
+      res.status(401).json({ error: 'Client ID do token não corresponde ao servidor.' });
+      return;
+    }
+
+    if (!tokenInfo.sub) {
+      res.status(401).json({ error: 'Identificador único da conta Google (sub) não encontrado.' });
+      return;
+    }
+
+    const googleName =
+      tokenInfo.name ||
+      tokenInfo.given_name ||
+      (tokenInfo.email ? tokenInfo.email.split('@')[0] : 'Jogador Google');
+
+    const profile = store.getOrCreateGoogleUser({
+      googleId: tokenInfo.sub,
+      email: tokenInfo.email,
+      googleName,
+      picture: tokenInfo.picture,
+    });
+
+    res.json({ ok: true, profile });
+  } catch (err) {
+    console.error('[Google Auth] Erro ao validar token:', err);
+    res.status(500).json({ error: 'Falha ao validar login com o Google.' });
+  }
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { username, displayName } = req.body as { username?: string; displayName?: string };
   if (!username || !username.trim()) {
@@ -248,10 +323,21 @@ app.post('/api/auth/login', (req, res) => {
 // SOCKET.IO REALTIME PROTOCOL
 // ==========================================
 io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
+  const rawGoogleId = String(socket.handshake.auth?.googleId || '').trim();
+  const rawEmail = String(socket.handshake.auth?.email || '').trim();
+  const rawGoogleName = String(socket.handshake.auth?.googleName || '').trim();
+  const rawPicture = String(socket.handshake.auth?.picture || '').trim();
   const rawUsername = String(socket.handshake.auth?.username || 'jogador');
   const rawDisplayName = String(socket.handshake.auth?.displayName || rawUsername);
 
-  const user = store.getOrCreateUser(rawUsername, rawDisplayName);
+  const user = rawGoogleId
+    ? store.getOrCreateGoogleUser({
+        googleId: rawGoogleId,
+        email: rawEmail || undefined,
+        googleName: rawGoogleName || rawDisplayName || 'Jogador Google',
+        picture: rawPicture || undefined,
+      })
+    : store.getOrCreateUser(rawUsername, rawDisplayName);
   const userId = user.id;
 
   // 6.1. No momento da conexão WebSocket, o servidor carrega do banco os itens equipados do usuário e salva na sessão do cache
@@ -273,6 +359,32 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
   socket.emit('auth:profile', user);
   broadcastRoomState(currentRoomHostId);
   broadcastDirectory();
+
+  // ------------------------------------------
+  // 0. Atualizar Nickname que aparece na sala (profile:update_nickname)
+  // ------------------------------------------
+  socket.on('profile:update_nickname', (rawPayload) => {
+    const updated = store.updateUserNickname(userId, String(rawPayload?.displayName || ''));
+    if (!updated) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Informe um nickname válido (1 a 24 caracteres).',
+      });
+      return;
+    }
+
+    emitToUser(userId, 'auth:profile', updated);
+    const activeHostId = store.userCurrentRoom.get(userId) || userId;
+    broadcastRoomState(activeHostId);
+    if (activeHostId !== userId) {
+      broadcastRoomState(userId);
+    }
+    broadcastDirectory();
+    socket.emit('system:toast', {
+      type: 'success',
+      message: `✨ Nickname na sala atualizado para "${updated.displayName}"!`,
+    });
+  });
 
   // ------------------------------------------
   // 1. Solicitar visita a um amigo (room:visit)
@@ -1277,6 +1389,12 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`✨ [Pocket Corner Server] Rodando em http://localhost:${PORT}`);
-});
+async function startServer() {
+  await store.initMongo(process.env.MONGODB_URI);
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`✨ [Pocket Corner Server] Rodando em http://localhost:${PORT}`);
+  });
+}
+
+void startServer();
