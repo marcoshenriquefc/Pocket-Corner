@@ -1,0 +1,6 @@
+node_modules/
+dist/
+server/data/db.json
+src-tauri/target/
+.DS_Store
+*.log
