@@ -2370,7 +2370,7 @@ class PocketCornerApp {
    * Atualiza o conteúdo interno do popup sem recriar o .modal-backdrop,
    * eliminando 100% do efeito de "piscar/refresh" e preservando a rolagem.
    */
-  private mountPopupWindow(innerHtml: string, maxWidth = '720px') {
+  private mountPopupWindow(innerHtml: string, maxWidth = '760px') {
     const prevBody = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
     const prevScroll = prevBody ? prevBody.scrollTop : 0;
 
@@ -2416,17 +2416,9 @@ class PocketCornerApp {
         {
           id: 'PIP',
           icon: '🐾',
-          label: 'Pip',
+          label: 'Pip (Personagem)',
           category: 'avatar_body',
           description: 'Mude o seu personagem (raposa, pinguim, peixe, capivara, gato e mais)',
-        },
-        {
-          id: 'PETS_COMPANION',
-          icon: '🐶',
-          label: 'Pets Companheiros',
-          category: 'companion_pet',
-          description:
-            'Pets em Diamantes 💎 para caminhar ao lado do seu Pip! Personalize a raça de qualquer pet comprado (1 equipado por vez)',
         },
         {
           id: 'CABECA',
@@ -2545,7 +2537,7 @@ class PocketCornerApp {
           <span>🛍️</span>
           <span>Loja</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <button class="currency-pill coins" id="shop-coins-pill" style="cursor: pointer;" title="Clique para comprar Moedas via PIX (+1 moeda a cada 5 min online)">🪙 ${this.profile.coins} +</button>
           <button class="currency-pill gems" id="shop-gems-pill" style="cursor: pointer;" title="Clique para comprar Pip Diamantes via PIX">💎 ${this.profile.gems} +</button>
           <button class="btn btn-sm btn-primary" id="btn-shop-goto-gems">💎 +Recargas / VIP</button>
@@ -2572,26 +2564,32 @@ class PocketCornerApp {
         </button>
       </div>
 
-      <!-- Sub-abas da Categoria Selecionada -->
-      <div class="popup-subtabs">
-        ${currentSubTabs
-          .map((sub) => {
-            const count = sub.category
-              ? COSMETIC_CATALOG.filter((it) => it.category === sub.category).length
-              : 0;
-            return `
-              <button
-                class="popup-subtab ${this.shopSubTab === sub.id ? 'active' : ''}"
-                data-shop-subtab="${sub.id}"
-              >
-                <span>${sub.icon}</span>
-                <span>${sub.label}</span>
-                ${count > 0 ? `<span class="popup-subtab-count">${count}</span>` : ''}
-              </button>
-            `;
-          })
-          .join('')}
-      </div>
+      ${
+        currentSubTabs.length > 1
+          ? `
+            <!-- Sub-abas da Categoria Selecionada -->
+            <div class="popup-subtabs">
+              ${currentSubTabs
+                .map((sub) => {
+                  const count = sub.category
+                    ? COSMETIC_CATALOG.filter((it) => it.category === sub.category).length
+                    : 0;
+                  return `
+                    <button
+                      class="popup-subtab ${this.shopSubTab === sub.id ? 'active' : ''}"
+                      data-shop-subtab="${sub.id}"
+                    >
+                      <span>${sub.icon}</span>
+                      <span>${sub.label}</span>
+                      ${count > 0 ? `<span class="popup-subtab-count">${count}</span>` : ''}
+                    </button>
+                  `;
+                })
+                .join('')}
+            </div>
+          `
+          : ''
+      }
 
       <div class="popup-body">
         <div class="shop-section-banner" title="${this.escapeHtml(activeSubMeta.description)}">

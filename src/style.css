@@ -593,8 +593,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 720px;
-  max-height: 85vh;
+  max-width: 760px;
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -605,37 +605,47 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .popup-title {
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   font-weight: 700;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* Barra de Abas (Tabs) dentro do Popup */
+/* Barra de Abas (Tabs) dentro do Popup — flex-shrink: 0 evita que as abas fiquem espremidas/cortadas */
 .popup-tabs {
   display: flex;
-  gap: 4px;
-  padding: 8px 18px 0;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(0, 0, 0, 0.2);
-  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.22);
 }
 
 .popup-tab {
-  padding: 9px 14px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
   color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
+  line-height: 1.25;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
@@ -643,36 +653,43 @@ body {
 
 .popup-tab:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .popup-tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
+  color: #ffffff;
+  background: rgba(99, 102, 241, 0.24);
+  border-color: var(--accent);
+  box-shadow: 0 3px 12px rgba(99, 102, 241, 0.25);
 }
 
 /* Sub-abas (Subtabs) em formato de Pílulas Limpas */
 .popup-subtabs {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   gap: 8px;
-  padding: 10px 18px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.015);
-  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .popup-subtab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 13px;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 7px 14px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.035);
   color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   font-weight: 600;
+  line-height: 1.25;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.14s ease;
@@ -680,21 +697,21 @@ body {
 
 .popup-subtab:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .popup-subtab.active {
   color: #ffffff;
-  background: rgba(99, 102, 241, 0.24);
+  background: rgba(99, 102, 241, 0.26);
   border-color: var(--accent);
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.22);
 }
 
 .popup-subtab-count {
-  font-size: 0.65rem;
+  font-size: 0.66rem;
   padding: 1px 6px;
   border-radius: 99px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   color: var(--text-primary);
 }
 
@@ -702,8 +719,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.025);
+  flex-shrink: 0;
+  padding: 11px 15px;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   gap: 10px;
@@ -739,7 +757,9 @@ body {
 }
 
 .popup-body {
-  padding: 18px;
+  padding: 18px 20px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

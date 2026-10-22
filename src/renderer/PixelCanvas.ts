@@ -3441,11 +3441,14 @@ export class PixelCanvasRenderer {
     const breed = getPetBreedOption(petId, p.equipped.companion_pet_variant);
     const isDragon = petId === 'pet_dragon';
 
-    // Posiciona o pet fielmente ao lado/atrás do Pip, mantendo dentro dos limites do palco
-    const offsetDist = isDragon ? 32 : 22;
+    // Posiciona o pet com uma distância confortável ao lado/atrás do Pip (sem ficar colado nele)
+    const isPreview = p.userId === '__preview__';
+    const offsetDist = isPreview ? (isDragon ? 42 : 34) : isDragon ? 48 : 36;
     let petX = playerX - dir * offsetDist;
-    if (petX < 20) petX = playerX + offsetDist;
-    if (petX > 340) petX = playerX - offsetDist;
+    const minStageX = isPreview ? 18 : 24;
+    const maxStageX = isPreview ? 202 : 336;
+    if (petX < minStageX) petX = playerX + offsetDist;
+    if (petX > maxStageX) petX = playerX - offsetDist;
 
     const bob = walkBob > 0 ? Math.round(Math.abs(Math.sin(this.tick * 0.22)) * 2) : 0;
     const breath = Math.round(Math.sin(this.tick * 0.1) * 1);
