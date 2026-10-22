@@ -44,7 +44,7 @@ type ShopSubTab =
   | 'DIAMANTES_PACKS';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
-type AdminTab = 'TRANSACTIONS' | 'PURCHASES';
+type AdminTab = 'TRANSACTIONS' | 'PURCHASES' | 'TEST_ITEMS';
 
 interface AuthSession {
   mode: 'google' | 'local';
@@ -612,6 +612,7 @@ class PocketCornerApp {
       const prev = this.profile;
       const structuralChange =
         !prev ||
+        prev.isAdmin !== profile.isAdmin ||
         prev.displayName !== profile.displayName ||
         prev.username !== profile.username ||
         prev.hostStatus !== profile.hostStatus ||
@@ -1239,14 +1240,9 @@ class PocketCornerApp {
       </div>
 
       <div class="popup-body">
-        <div class="shop-section-banner">
-          <div>
-            <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary);">
-              ${activeSubMeta.icon} ${activeSubMeta.label}
-            </div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
-              ${activeSubMeta.description}
-            </div>
+        <div class="shop-section-banner" title="${this.escapeHtml(activeSubMeta.description)}">
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary);">
+            ${activeSubMeta.icon} ${activeSubMeta.label}
           </div>
           ${
             activeSubMeta.category
@@ -1264,13 +1260,10 @@ class PocketCornerApp {
             ? this.renderShopRealMoneySection()
             : this.shopSubTab === 'GACHA'
               ? `
-                <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+                <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;" title="Sorteie cosméticos de Moedas do catálogo! Itens repetidos devolvem metade do valor.">
                   <div style="font-size: 3rem;">🎰</div>
                   <div style="font-size: 1rem; font-weight: 700; color: var(--accent-gold);">
                     Máquina de Cápsulas Surpresa
-                  </div>
-                  <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 420px;">
-                    Sorteie cosméticos de Moedas do catálogo! Itens repetidos devolvem metade do valor.
                   </div>
                   <button class="btn btn-primary" id="btn-roll-gachapon" style="padding: 10px 24px; font-size: 0.88rem;">
                     Girar Cápsula (${GACHAPON_COST_COINS} 🪙)
@@ -1345,7 +1338,7 @@ class PocketCornerApp {
         <div class="pix-checkout-box">
           <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
             <div style="font-size: 0.85rem; font-weight: 800; color: var(--accent-green);">
-              💠 Pagamento PIX Instantâneo — ${this.escapeHtml(this.activePixCheckout.packageName)} (${this.formatBrl(this.activePixCheckout.amountBrl)})
+              💠 PIX — ${this.escapeHtml(this.activePixCheckout.packageName)} (${this.formatBrl(this.activePixCheckout.amountBrl)})
             </div>
             <button class="btn btn-sm btn-danger" id="btn-cancel-pix">Fechar PIX</button>
           </div>
@@ -1354,9 +1347,6 @@ class PocketCornerApp {
               ? `<img class="pix-qr-img" src="data:image/png;base64,${this.activePixCheckout.qrCodeBase64}" alt="QR Code PIX" />`
               : ''
           }
-          <div style="font-size: 0.74rem; color: var(--text-secondary);">
-            Escaneie o QR Code acima com o app do seu banco ou copie o código PIX Copia e Cola abaixo:
-          </div>
           <div style="display: flex; gap: 8px; width: 100%;">
             <input
               type="text"
@@ -1368,7 +1358,7 @@ class PocketCornerApp {
             <button class="btn btn-sm btn-primary" id="btn-copy-pix-code">📋 Copiar PIX</button>
           </div>
           <div style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 600;">
-            ⏳ Aguardando confirmação automática do banco... Assim que pagar, seus itens/diamantes caem na hora!
+            ⏳ Aguardando confirmação automática...
           </div>
         </div>
       `
@@ -1378,21 +1368,17 @@ class PocketCornerApp {
       const doubleDPriceStr = this.formatBrl(doubleDPack.priceBrl);
       return `
         ${pixCheckoutHtml}
-        <div class="double-d-hero">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+        <div class="double-d-hero" title="${this.escapeHtml(doubleDPack.description)}">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
             <div>
-              <span class="rarity-badge rarity-LEGENDARY" style="font-size: 0.68rem; padding: 3px 8px;">
-                ★ PACOTE LENDÁRIO EXCLUSIVO • SOMENTE DINHEIRO REAL
+              <span class="rarity-badge rarity-LEGENDARY" style="font-size: 0.68rem; padding: 3px 8px; margin-left: 0;">
+                ★ PACOTE LENDÁRIO EXCLUSIVO
               </span>
-              <h3 style="margin: 8px 0 4px; font-size: 1.18rem; color: #fde047;">
+              <h3 style="margin: 6px 0 0; font-size: 1.18rem; color: #fde047;">
                 💿 ${this.escapeHtml(doubleDPack.name)}
               </h3>
-              <p style="margin: 0; font-size: 0.76rem; color: var(--text-secondary); max-width: 500px;">
-                ${this.escapeHtml(doubleDPack.description)}
-              </p>
             </div>
             <div style="text-align: right;">
-              <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Valor Único</div>
               <div style="font-size: 1.25rem; font-weight: 800; color: var(--accent-gold);">
                 ${doubleDPriceStr}
               </div>
@@ -1400,51 +1386,42 @@ class PocketCornerApp {
           </div>
 
           <div class="double-d-items-row">
-            <div class="double-d-mini-card">
-              <div style="font-size: 1.5rem;">🎧</div>
-              <div style="font-size: 0.76rem; font-weight: 700; color: #fde047;">Skin DJ Double D</div>
-              <div style="font-size: 0.68rem; color: var(--text-secondary);">
-                Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!
-              </div>
+            <div class="double-d-mini-card" title="Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!">
+              <div style="font-size: 1.4rem;">🎧</div>
+              <div style="font-size: 0.78rem; font-weight: 700; color: #fde047;">Skin DJ Double D</div>
+              <div class="hover-desc-tooltip">Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!</div>
             </div>
-            <div class="double-d-mini-card">
-              <div style="font-size: 1.5rem;">🛹</div>
-              <div style="font-size: 0.76rem; font-weight: 700; color: #f472b6;">Cenário Beco da Rapariga</div>
-              <div style="font-size: 0.68rem; color: var(--text-secondary);">
-                Cenário urbano fiel em pixel art com grafite, muro em 2 tons, placa de rua, poste iluminado e calçada!
-              </div>
+            <div class="double-d-mini-card" title="Cenário urbano fiel em pixel art com grafite, muro em 2 tons, placa de rua, poste iluminado e calçada!">
+              <div style="font-size: 1.4rem;">🛹</div>
+              <div style="font-size: 0.78rem; font-weight: 700; color: #f472b6;">Beco da Rapariga</div>
+              <div class="hover-desc-tooltip">Cenário urbano fiel em pixel art com grafite, muro em 2 tons, placa de rua, poste iluminado e calçada!</div>
             </div>
-            <div class="double-d-mini-card">
-              <div style="font-size: 1.5rem;">🎛️</div>
-              <div style="font-size: 0.76rem; font-weight: 700; color: #38bdf8;">Mesa de DJ Double D</div>
-              <div style="font-size: 0.68rem; color: var(--text-secondary);">
-                Móvel interativo com 2 pick-ups girando, caixas de som e painel frontal de LEDs pulsantes!
-              </div>
+            <div class="double-d-mini-card" title="Móvel interativo com 2 pick-ups girando, caixas de som e painel frontal de LEDs pulsantes!">
+              <div style="font-size: 1.4rem;">🎛️</div>
+              <div style="font-size: 0.78rem; font-weight: 700; color: #38bdf8;">Mesa de DJ Double D</div>
+              <div class="hover-desc-tooltip">Móvel interativo com 2 pick-ups girando, caixas de som e painel frontal de LEDs pulsantes!</div>
             </div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px;">
-            <div style="font-size: 0.72rem; color: var(--text-secondary);">
-              🔒 <b>Exclusividade Garantida:</b> Não pode ser comprado com moedas nem diamantes.
-            </div>
+          <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 6px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px;">
             ${
               ownsDoubleD
                 ? `<div style="display: flex; gap: 8px; align-items: center;">
-                    <span class="btn btn-sm active-toggle">✓ Pacote Adquirido</span>
+                    <span class="btn btn-sm active-toggle">✓ Adquirido</span>
                     <button class="btn btn-sm btn-gold" id="btn-equip-double-d-all">
-                      ✨ Equipar Skin + Cenário + Mesa de DJ
+                      ✨ Equipar Pack Completo
                     </button>
                   </div>`
                 : `<button
                     class="btn btn-gold"
                     data-buy-real-pkg="${doubleDPack.id}"
-                    style="padding: 10px 20px; font-size: 0.84rem;"
+                    style="padding: 9px 18px; font-size: 0.84rem;"
                     ${this.pixCreatingPackageId === doubleDPack.id ? 'disabled' : ''}
                   >
                     ${
                       this.pixCreatingPackageId === doubleDPack.id
                         ? 'Gerando PIX...'
-                        : `Comprar Double D Pack via PIX (${doubleDPriceStr})`
+                        : `Comprar via PIX (${doubleDPriceStr})`
                     }
                   </button>`
             }
@@ -1461,21 +1438,17 @@ class PocketCornerApp {
             const isLoading = this.pixCreatingPackageId === pkg.id;
             const gemsCount = pkg.gemsAmount || 0;
             const priceStr = this.formatBrl(pkg.priceBrl);
+            const hoverText = `${pkg.name}${pkg.bonusGems ? ` (+${pkg.bonusGems} de bônus incluso)` : ''} — ${pkg.description}`;
             return `
-              <div class="item-card" style="border-color: ${pkg.isTestItem ? 'rgba(56, 189, 248, 0.4)' : 'rgba(245, 158, 11, 0.35)'};">
-                <div class="item-icon" style="font-size: 1.6rem;">${pkg.icon}</div>
+              <div
+                class="item-card"
+                title="${this.escapeHtml(hoverText)}"
+                style="border-color: ${pkg.isTestItem ? 'rgba(56, 189, 248, 0.4)' : 'rgba(245, 158, 11, 0.35)'};"
+              >
+                <div class="item-icon" style="font-size: 1.45rem;">💎</div>
                 <div class="item-info">
-                  <div class="item-name">
-                    ${this.escapeHtml(pkg.name)}
-                    ${
-                      pkg.badgeText
-                        ? `<span class="rarity-badge ${pkg.isTestItem ? 'rarity-RARE' : 'rarity-LEGENDARY'}">${this.escapeHtml(pkg.badgeText)}</span>`
-                        : ''
-                    }
-                  </div>
-                  <div class="item-sub">${this.escapeHtml(pkg.description)}</div>
-                  <div style="font-size: 0.74rem; font-weight: 700; color: var(--accent-purple); margin-top: 3px;">
-                    Recebe: 💎 ${gemsCount} Pip Diamante${gemsCount > 1 ? 's' : ''}
+                  <div class="item-name" style="font-size: 0.92rem; font-weight: 800; color: var(--accent-purple);">
+                    ${gemsCount} 💎
                   </div>
                 </div>
                 <div>
@@ -1487,6 +1460,7 @@ class PocketCornerApp {
                     ${isLoading ? 'Gerando...' : priceStr}
                   </button>
                 </div>
+                <div class="hover-desc-tooltip">${this.escapeHtml(hoverText)}</div>
               </div>
             `;
           })
@@ -2159,7 +2133,7 @@ class PocketCornerApp {
     const rarityLabel = rarityLabels[item.rarity] || item.rarity;
 
     return `
-      <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}">
+      <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
         <div class="item-icon">${item.icon}</div>
         <div class="item-info">
           <div class="item-name">
@@ -2167,11 +2141,10 @@ class PocketCornerApp {
             <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
             ${
               item.realMoneyOnly
-                ? `<span class="rarity-badge rarity-LEGENDARY" title="Item exclusivo do Double D Pack">💿 Double D Pack</span>`
+                ? `<span class="rarity-badge rarity-LEGENDARY" title="Item exclusivo do Double D Pack">💿 Double D</span>`
                 : ''
             }
           </div>
-          <div class="item-sub">${this.escapeHtml(item.description)}</div>
         </div>
         <div>
           ${
@@ -2196,6 +2169,7 @@ class PocketCornerApp {
                   </button>`
           }
         </div>
+        <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
       </div>
     `;
   }
@@ -2259,8 +2233,13 @@ class PocketCornerApp {
                           : `<div class="item-icon">🔐</div>`
                       }
                       <div style="flex: 1; min-width: 0;">
-                        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary);">
-                          ${this.escapeHtml(googleName)}
+                        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                          <span>${this.escapeHtml(googleName)}</span>
+                          ${
+                            this.profile?.isAdmin
+                              ? `<span class="rarity-badge rarity-LEGENDARY" style="margin-left:0;">🛡️ ADMIN</span>`
+                              : ''
+                          }
                         </div>
                         <div style="font-size: 0.7rem; color: var(--text-secondary);">
                           ${this.escapeHtml(googleEmail || 'Conta Google vinculada')}
@@ -2279,6 +2258,29 @@ class PocketCornerApp {
                         </div>
                       </div>
                     </div>`
+              }
+
+              ${
+                this.profile?.isAdmin
+                  ? `
+                    <div style="background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                      <div style="font-size: 0.76rem; font-weight: 800; color: var(--accent-gold);">
+                        🛡️ Acesso de Administrador Ativo (Validado no Servidor)
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <button class="btn btn-sm btn-gold" id="btn-prof-admin-tx" style="justify-content: center;">
+                          💳 Ver Transações PIX
+                        </button>
+                        <button class="btn btn-sm btn-gold" id="btn-prof-admin-purchases" style="justify-content: center;">
+                          🛍️ Ver Compras da Loja
+                        </button>
+                      </div>
+                      <button class="btn btn-sm btn-primary" id="btn-prof-admin-test" style="justify-content: center; padding: 7px;">
+                        🧪 Testar Qualquer Item / Poderes Admin
+                      </button>
+                    </div>
+                  `
+                  : ''
               }
 
               <div style="display: flex; flex-direction: column; gap: 5px;">
@@ -2347,6 +2349,21 @@ class PocketCornerApp {
     );
 
     this.bindCommonPopupEvents();
+
+    document.getElementById('btn-prof-admin-tx')?.addEventListener('click', () => {
+      this.adminTab = 'TRANSACTIONS';
+      this.openModal('ADMIN');
+    });
+
+    document.getElementById('btn-prof-admin-purchases')?.addEventListener('click', () => {
+      this.adminTab = 'PURCHASES';
+      this.openModal('ADMIN');
+    });
+
+    document.getElementById('btn-prof-admin-test')?.addEventListener('click', () => {
+      this.adminTab = 'TEST_ITEMS';
+      this.openModal('ADMIN');
+    });
 
     document.getElementById('btn-copy-profile-id')?.addEventListener('click', () => {
       const myTag = `@${this.profile?.username || ''}`;
@@ -2444,6 +2461,39 @@ class PocketCornerApp {
     }
   }
 
+  private async executeAdminTestAction(
+    action: 'UNLOCK_ALL' | 'ADD_COINS' | 'ADD_GEMS' | 'EQUIP_ITEM' | 'EQUIP_DOUBLE_D',
+    itemId?: string
+  ) {
+    try {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/admin/test-action`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ action, itemId }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        profile?: UserProfile;
+      };
+      if (!res.ok || !data.ok) {
+        this.showToast('error', data.error || 'Falha ao executar ação de administrador.');
+        return;
+      }
+      if (data.profile) {
+        this.profile = data.profile;
+        this.renderTopbar();
+        if (this.activeModal === 'ADMIN') {
+          this.renderAdminPopup();
+        }
+      }
+    } catch (err) {
+      this.showToast('error', `Erro na ação admin: ${(err as Error).message}`);
+    }
+  }
+
   private renderAdminPopup() {
     const sum = this.adminDashboard.summary;
     const revenueFormatted = sum ? this.formatBrl(sum.totalApprovedBrl) : 'R$ 0,00';
@@ -2464,20 +2514,23 @@ class PocketCornerApp {
         <div class="popup-header">
           <div class="popup-title">
             <span>🛡️</span>
-            <span>Painel do Administrador (Transações & Compras)</span>
+            <span>Painel do Administrador (${this.escapeHtml(this.profile?.email || '')})</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <button class="btn btn-sm btn-primary" id="btn-admin-refresh">🔄 Atualizar Dados</button>
+            <button class="btn btn-sm btn-primary" id="btn-admin-refresh">🔄 Atualizar</button>
             <button class="btn btn-icon" id="btn-close-modal">✕</button>
           </div>
         </div>
 
         <div class="popup-tabs">
           <button class="popup-tab ${this.adminTab === 'TRANSACTIONS' ? 'active' : ''}" data-admin-tab="TRANSACTIONS">
-            💳 Transações PIX / Mercado Pago (${this.adminDashboard.paymentTransactions.length})
+            💳 Transações PIX (${this.adminDashboard.paymentTransactions.length})
           </button>
           <button class="popup-tab ${this.adminTab === 'PURCHASES' ? 'active' : ''}" data-admin-tab="PURCHASES">
             🛍️ Compras na Loja (${this.adminDashboard.shopPurchaseLogs.length})
+          </button>
+          <button class="popup-tab ${this.adminTab === 'TEST_ITEMS' ? 'active' : ''}" data-admin-tab="TEST_ITEMS" style="color: var(--accent-gold);">
+            🧪 Testar Itens (${COSMETIC_CATALOG.length})
           </button>
         </div>
 
@@ -2559,42 +2612,86 @@ class PocketCornerApp {
                             </table>
                           </div>
                         `
-                      : this.adminDashboard.shopPurchaseLogs.length === 0
-                        ? `<div class="empty-hint">Nenhuma compra com Moedas ou Pip Diamantes registrada ainda.</div>`
+                      : this.adminTab === 'PURCHASES'
+                        ? this.adminDashboard.shopPurchaseLogs.length === 0
+                          ? `<div class="empty-hint">Nenhuma compra com Moedas ou Pip Diamantes registrada ainda.</div>`
+                          : `
+                            <div style="overflow-x: auto;">
+                              <table class="admin-table">
+                                <thead>
+                                  <tr>
+                                    <th>Data</th>
+                                    <th>Jogador / E-mail</th>
+                                    <th>Item Comprado</th>
+                                    <th>Origem</th>
+                                    <th>Preço Pago</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${this.adminDashboard.shopPurchaseLogs
+                                    .map(
+                                      (log) => `
+                                        <tr>
+                                          <td>${formatDate(log.createdAt)}</td>
+                                          <td>
+                                            <b>${this.escapeHtml(log.displayName)}</b>
+                                            <span style="color:var(--accent-cyan);">@${this.escapeHtml(log.username)}</span><br/>
+                                            <span style="font-size:0.65rem; color:var(--text-muted);">${this.escapeHtml(log.email || '-')}</span>
+                                          </td>
+                                          <td><b>${log.itemIcon} ${this.escapeHtml(log.itemName)}</b></td>
+                                          <td>${log.source === 'GACHAPON' ? '🎰 Cápsula' : '🛍️ Loja'}</td>
+                                          <td style="font-weight:700;">
+                                            ${log.price} ${log.currency === 'GEMS' ? '💎 Pip Diamantes' : '🪙 Moedas'}
+                                          </td>
+                                        </tr>
+                                      `
+                                    )
+                                    .join('')}
+                                </tbody>
+                              </table>
+                            </div>
+                          `
                         : `
-                          <div style="overflow-x: auto;">
-                            <table class="admin-table">
-                              <thead>
-                                <tr>
-                                  <th>Data</th>
-                                  <th>Jogador / E-mail</th>
-                                  <th>Item Comprado</th>
-                                  <th>Origem</th>
-                                  <th>Preço Pago</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                ${this.adminDashboard.shopPurchaseLogs
-                                  .map(
-                                    (log) => `
-                                      <tr>
-                                        <td>${formatDate(log.createdAt)}</td>
-                                        <td>
-                                          <b>${this.escapeHtml(log.displayName)}</b>
-                                          <span style="color:var(--accent-cyan);">@${this.escapeHtml(log.username)}</span><br/>
-                                          <span style="font-size:0.65rem; color:var(--text-muted);">${this.escapeHtml(log.email || '-')}</span>
-                                        </td>
-                                        <td><b>${log.itemIcon} ${this.escapeHtml(log.itemName)}</b></td>
-                                        <td>${log.source === 'GACHAPON' ? '🎰 Cápsula' : '🛍️ Loja'}</td>
-                                        <td style="font-weight:700;">
-                                          ${log.price} ${log.currency === 'GEMS' ? '💎 Pip Diamantes' : '🪙 Moedas'}
-                                        </td>
-                                      </tr>
-                                    `
-                                  )
-                                  .join('')}
-                              </tbody>
-                            </table>
+                          <div style="display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; background: rgba(250, 204, 21, 0.08); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 10px;">
+                            <button class="btn btn-sm btn-gold" id="btn-admin-unlock-all">
+                              🔓 Liberar Todos os Itens
+                            </button>
+                            <button class="btn btn-sm btn-gold" id="btn-admin-equip-double-d">
+                              💿 Equipar Double D Pack Completo
+                            </button>
+                            <button class="btn btn-sm btn-primary" id="btn-admin-add-coins">
+                              🪙 +1.000 Moedas
+                            </button>
+                            <button class="btn btn-sm btn-primary" id="btn-admin-add-gems">
+                              💎 +500 Pip Diamantes
+                            </button>
+                          </div>
+
+                          <div class="items-grid">
+                            ${COSMETIC_CATALOG.map((item) => {
+                              const isEquipped =
+                                item.category !== 'furniture' &&
+                                this.profile?.equipped[item.category] === item.id;
+                              const isPlaced =
+                                item.category === 'furniture' &&
+                                (this.profile?.placedFurniture || []).some(
+                                  (f) => f.itemId === item.id
+                                );
+                              return `
+                                <div class="item-card ${isEquipped || isPlaced ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
+                                  <div class="item-icon">${item.icon}</div>
+                                  <div class="item-info">
+                                    <div class="item-name">${this.escapeHtml(item.name)}</div>
+                                  </div>
+                                  <div>
+                                    <button class="btn btn-sm ${isEquipped || isPlaced ? 'active-toggle' : 'btn-gold'}" data-admin-test-item="${item.id}">
+                                      ${isEquipped || isPlaced ? '✓ Ativo' : '⚡ Testar'}
+                                    </button>
+                                  </div>
+                                  <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
+                                </div>
+                              `;
+                            }).join('')}
                           </div>
                         `
                   }
@@ -2609,6 +2706,29 @@ class PocketCornerApp {
 
     document.getElementById('btn-admin-refresh')?.addEventListener('click', () => {
       void this.fetchAdminDashboard();
+    });
+
+    document.getElementById('btn-admin-unlock-all')?.addEventListener('click', () => {
+      void this.executeAdminTestAction('UNLOCK_ALL');
+    });
+
+    document.getElementById('btn-admin-equip-double-d')?.addEventListener('click', () => {
+      void this.executeAdminTestAction('EQUIP_DOUBLE_D');
+    });
+
+    document.getElementById('btn-admin-add-coins')?.addEventListener('click', () => {
+      void this.executeAdminTestAction('ADD_COINS');
+    });
+
+    document.getElementById('btn-admin-add-gems')?.addEventListener('click', () => {
+      void this.executeAdminTestAction('ADD_GEMS');
+    });
+
+    this.modalRootEl.querySelectorAll('[data-admin-test-item]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const itemId = (btn as HTMLElement).dataset.adminTestItem!;
+        void this.executeAdminTestAction('EQUIP_ITEM', itemId);
+      });
     });
 
     this.modalRootEl.querySelectorAll('[data-admin-tab]').forEach((btn) => {

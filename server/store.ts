@@ -512,8 +512,17 @@ export class PocketStore {
    * O frontend NUNCA tem autoridade para definir ou alterar isAdmin.
    */
   public isUserAdmin(userOrId: UserProfile | string | undefined | null): boolean {
-    const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-    if (!adminEmail) return false;
+    const rawEnv = (process.env.ADMIN_EMAIL || '')
+      .replace(/['"]/g, '')
+      .trim()
+      .toLowerCase();
+    if (!rawEnv) return false;
+
+    const allowedEmails = rawEnv
+      .split(/[,;\s]+/)
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (allowedEmails.length === 0) return false;
 
     const u =
       typeof userOrId === 'string'
@@ -523,20 +532,42 @@ export class PocketStore {
           : undefined;
 
     if (!u || !u.googleId || !u.email) return false;
-    return u.email.trim().toLowerCase() === adminEmail;
+    return allowedEmails.includes(u.email.trim().toLowerCase());
   }
 
   public withComputedAdminFlag(user: UserProfile): UserProfile {
+    const isAdmin = this.isUserAdmin(user);
+    if (isAdmin) {
+      // Garante que o Administrador tenha todos os itens liberados por padrão para poder testar qualquer item
+      let addedAny = false;
+      for (const item of COSMETIC_CATALOG) {
+        if (!user.inventory.includes(item.id)) {
+          user.inventory.push(item.id);
+          addedAny = true;
+        }
+      }
+      if (addedAny) {
+        this.saveDB();
+      }
+    }
     return {
       ...user,
-      isAdmin: this.isUserAdmin(user),
+      isAdmin,
     };
   }
 
   public getUserById(userId: string): UserProfile | undefined {
     const u = this.db.users[userId];
     if (!u) return undefined;
-    u.isAdmin = this.isUserAdmin(u);
+    const isAdmin = this.isUserAdmin(u);
+    u.isAdmin = isAdmin;
+    if (isAdmin) {
+      for (const item of COSMETIC_CATALOG) {
+        if (!u.inventory.includes(item.id)) {
+          u.inventory.push(item.id);
+        }
+      }
+    }
     return u;
   }
 
@@ -560,10 +591,11 @@ export class PocketStore {
     const user = this.db.users[userId];
     if (!user) return { ...DEFAULT_EQUIPPED };
 
+    const isAdmin = this.isUserAdmin(user);
     const safeEquipped: EquippedLoadout = { ...DEFAULT_EQUIPPED };
     (Object.keys(DEFAULT_EQUIPPED) as Array<keyof EquippedLoadout>).forEach((slot) => {
       const candidateId = user.equipped[slot];
-      if (candidateId && user.inventory.includes(candidateId)) {
+      if (candidateId && (isAdmin || user.inventory.includes(candidateId))) {
         safeEquipped[slot] = candidateId;
       }
     });
@@ -580,10 +612,12 @@ export class PocketStore {
 
   /**
    * 3.1. Princípio de Ouro: Server-Side Inventory Verification
+   * (Se for o Administrador verificado no backend, permite testar qualquer item)
    */
   public verifyOwnership(userId: string, itemId: string): boolean {
     const user = this.db.users[userId];
     if (!user) return false;
+    if (this.isUserAdmin(user)) return true;
     return user.inventory.includes(itemId);
   }
 
@@ -1165,6 +1199,98 @@ export class PocketStore {
       paymentTransactions: txs.slice(0, 200),
       shopPurchaseLogs: logs.slice(0, 200),
     };
+  }
+
+  public adminExecuteTestAction(
+    adminUserId: string,
+    action: 'UNLOCK_ALL' | 'ADD_COINS' | 'ADD_GEMS' | 'EQUIP_ITEM' | 'EQUIP_DOUBLE_D',
+    itemId?: string
+  ): { ok: boolean; message: string; user?: UserProfile } {
+    const user = this.db.users[adminUserId];
+    if (!user || !this.isUserAdmin(user)) {
+      return { ok: false, message: '⛔ Acesso negado pelo servidor: apenas ADMIN_EMAIL autorizado.' };
+    }
+
+    if (action === 'UNLOCK_ALL') {
+      for (const item of COSMETIC_CATALOG) {
+        if (!user.inventory.includes(item.id)) {
+          user.inventory.push(item.id);
+        }
+      }
+      this.saveDB();
+      return {
+        ok: true,
+        message: `🛡️ [Admin] Todos os ${COSMETIC_CATALOG.length} itens do catálogo (incluindo Double D Pack) foram liberados!`,
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    if (action === 'ADD_COINS') {
+      user.coins = (user.coins || 0) + 1000;
+      this.saveDB();
+      return {
+        ok: true,
+        message: '🛡️ [Admin] +1.000 🪙 Moedas de teste adicionadas!',
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    if (action === 'ADD_GEMS') {
+      user.gems = (user.gems || 0) + 500;
+      this.saveDB();
+      return {
+        ok: true,
+        message: '🛡️ [Admin] +500 💎 Pip Diamantes de teste adicionados!',
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    if (action === 'EQUIP_DOUBLE_D') {
+      for (const id of ['body_dj_double_d', 'room_beco_rapariga', 'furn_dj_booth']) {
+        if (!user.inventory.includes(id)) user.inventory.push(id);
+      }
+      user.equipped.avatar_body = 'body_dj_double_d';
+      user.equipped.room_skin = 'room_beco_rapariga';
+      if (!user.placedFurniture) user.placedFurniture = [];
+      if (!user.placedFurniture.some((f) => f.itemId === 'furn_dj_booth')) {
+        user.placedFurniture.push({
+          instanceId: `furn_${Date.now()}_dj`,
+          itemId: 'furn_dj_booth',
+          x: 220,
+          flipped: false,
+          colorVariant: 'default',
+        });
+      }
+      this.saveDB();
+      const updatedLoadout = this.loadSessionCosmetics(user.id);
+      const currentRoomHostId = this.userCurrentRoom.get(user.id);
+      if (currentRoomHostId) {
+        const room = this.rooms.get(currentRoomHostId);
+        const playerState = room?.players.get(user.id);
+        if (playerState) playerState.equipped = updatedLoadout;
+      }
+      return {
+        ok: true,
+        message: '💿 [Admin] Double D Pack (Skin DJ + Beco da Rapariga + Mesa de DJ) equipado para teste!',
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    if (action === 'EQUIP_ITEM' && itemId) {
+      const item = getCosmeticById(itemId);
+      if (!item) return { ok: false, message: 'Item não encontrado.' };
+      if (!user.inventory.includes(item.id)) {
+        user.inventory.push(item.id);
+      }
+      const res = this.equipItem(user.id, item.id);
+      return {
+        ok: res.ok,
+        message: `🛡️ [Admin] ${res.message}`,
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    return { ok: false, message: 'Ação inválida.' };
   }
 
   /**

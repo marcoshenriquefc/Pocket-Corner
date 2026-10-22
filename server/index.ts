@@ -683,6 +683,58 @@ app.get('/api/admin/dashboard', (req, res) => {
   });
 });
 
+app.post('/api/admin/test-action', (req, res) => {
+  dotenv.config({ override: true });
+  const authUser = resolveAuthenticatedRequestUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Não autenticado. Faça login com sua conta Google.' });
+    return;
+  }
+
+  if (!store.isUserAdmin(authUser)) {
+    res.status(403).json({
+      error:
+        '⛔ Acesso negado pelo servidor: sua conta Google não está autorizada como ADMIN_EMAIL.',
+    });
+    return;
+  }
+
+  const { action, itemId } = (req.body || {}) as {
+    action?: 'UNLOCK_ALL' | 'ADD_COINS' | 'ADD_GEMS' | 'EQUIP_ITEM' | 'EQUIP_DOUBLE_D';
+    itemId?: string;
+  };
+
+  if (!action) {
+    res.status(400).json({ error: 'Ação de administrador não informada.' });
+    return;
+  }
+
+  const result = store.adminExecuteTestAction(authUser.id, action, itemId);
+  if (!result.ok || !result.user) {
+    res.status(400).json({ error: result.message });
+    return;
+  }
+
+  emitToUser(result.user.id, 'auth:profile', result.user);
+  emitToUser(result.user.id, 'system:toast', {
+    type: 'success',
+    message: result.message,
+  });
+
+  const hostId = store.userCurrentRoom.get(result.user.id) || result.user.id;
+  broadcastRoomState(hostId);
+  if (hostId !== result.user.id) {
+    broadcastRoomState(result.user.id);
+  }
+  broadcastDirectory();
+
+  res.json({
+    ok: true,
+    message: result.message,
+    profile: result.user,
+  });
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { username, displayName } = req.body as { username?: string; displayName?: string };
   if (!username || !username.trim()) {
