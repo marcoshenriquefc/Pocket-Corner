@@ -1117,6 +1117,10 @@ export class PocketStore {
       user.gems = (user.gems || 0) + pkg.gemsAmount;
       tx.gemsCredited = pkg.gemsAmount;
       rewardSummary = `+${pkg.gemsAmount} Pip Diamantes 💎 creditados na sua conta!`;
+    } else if (pkg.type === 'COINS_PACK' && pkg.coinsAmount) {
+      user.coins = (user.coins || 0) + pkg.coinsAmount;
+      tx.coinsCredited = pkg.coinsAmount;
+      rewardSummary = `+${pkg.coinsAmount} Moedas 🪙 creditadas na sua conta!`;
     } else if (pkg.type === 'EXCLUSIVE_BUNDLE' && pkg.grantedItemIds) {
       const granted: string[] = [];
       for (const itemId of pkg.grantedItemIds) {

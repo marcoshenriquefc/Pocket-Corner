@@ -41,7 +41,8 @@ type ShopSubTab =
   | 'PRESENTES'
   | 'GACHA'
   | 'PACOTES_VIP'
-  | 'DIAMANTES_PACKS';
+  | 'DIAMANTES_PACKS'
+  | 'MOEDAS_PACKS';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
 type AdminTab = 'TRANSACTIONS' | 'PURCHASES' | 'TEST_ITEMS';
@@ -734,8 +735,8 @@ class PocketCornerApp {
       // Atualiza saldo na Loja sem piscar/recriar o popup quando for apenas tick passivo de moedas
       const shopCoinsEl = document.getElementById('shop-coins-pill');
       const shopGemsEl = document.getElementById('shop-gems-pill');
-      if (shopCoinsEl) shopCoinsEl.textContent = `🪙 ${profile.coins}`;
-      if (shopGemsEl) shopGemsEl.textContent = `💎 ${profile.gems}`;
+      if (shopCoinsEl) shopCoinsEl.textContent = `🪙 ${profile.coins} +`;
+      if (shopGemsEl) shopGemsEl.textContent = `💎 ${profile.gems} +`;
 
       if (this.activeModal !== 'NONE' && structuralChange) {
         this.renderActiveModal();
@@ -929,7 +930,9 @@ class PocketCornerApp {
       </div>
 
       <div class="topbar-right">
-        <span class="currency-pill coins" title="Moedas Idle (+1 a cada 5 min online)">🪙 ${this.profile.coins}</span>
+        <button class="currency-pill coins" id="btn-top-buy-coins" style="cursor: pointer;" title="Moedas (+1 a cada 5 min online) — Clique para comprar Moedas via PIX">
+          🪙 ${this.profile.coins} <span style="font-size:0.65rem; opacity:0.85;">+</span>
+        </button>
         <button class="currency-pill gems" id="btn-top-buy-gems" style="cursor: pointer;" title="Pip Diamantes — Clique para recarregar ou ver o Double D Pack">
           💎 ${this.profile.gems} <span style="font-size:0.65rem; opacity:0.85;">+</span>
         </button>
@@ -956,9 +959,15 @@ class PocketCornerApp {
       this.openModal('PROFILE');
     });
 
+    document.getElementById('btn-top-buy-coins')?.addEventListener('click', () => {
+      this.shopTab = 'DIAMANTES';
+      this.shopSubTab = 'MOEDAS_PACKS';
+      this.openModal('SHOP');
+    });
+
     document.getElementById('btn-top-buy-gems')?.addEventListener('click', () => {
       this.shopTab = 'DIAMANTES';
-      this.shopSubTab = 'PACOTES_VIP';
+      this.shopSubTab = 'DIAMANTES_PACKS';
       this.openModal('SHOP');
     });
 
@@ -1267,6 +1276,12 @@ class PocketCornerApp {
           label: 'Pip Diamantes (PIX)',
           description: 'Adquira Pip Diamantes instantaneamente via PIX para desbloquear itens especiais na loja!',
         },
+        {
+          id: 'MOEDAS_PACKS',
+          icon: '🪙',
+          label: 'Moedas (PIX)',
+          description: 'Compre pacotes de Moedas via PIX para mobiliar e personalizar seu cantinho imediatamente!',
+        },
       ],
     };
 
@@ -1289,14 +1304,14 @@ class PocketCornerApp {
           <span>Loja</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="currency-pill coins" id="shop-coins-pill" title="+1 moeda a cada 5 minutos online">🪙 ${this.profile.coins}</span>
-          <span class="currency-pill gems" id="shop-gems-pill">💎 ${this.profile.gems}</span>
-          <button class="btn btn-sm btn-primary" id="btn-shop-goto-gems">💎 +Diamantes / VIP</button>
+          <button class="currency-pill coins" id="shop-coins-pill" style="cursor: pointer;" title="Clique para comprar Moedas via PIX (+1 moeda a cada 5 min online)">🪙 ${this.profile.coins} +</button>
+          <button class="currency-pill gems" id="shop-gems-pill" style="cursor: pointer;" title="Clique para comprar Pip Diamantes via PIX">💎 ${this.profile.gems} +</button>
+          <button class="btn btn-sm btn-primary" id="btn-shop-goto-gems">💎 +Recargas / VIP</button>
           <button class="btn btn-icon" id="btn-close-modal">✕</button>
         </div>
       </div>
 
-      <!-- Abas Principais: Aparência | Meu Cantinho | Outros | Pip Diamantes & VIP -->
+      <!-- Abas Principais: Aparência | Meu Cantinho | Outros | Recargas & VIP -->
       <div class="popup-tabs">
         <button class="popup-tab ${this.shopTab === 'APARENCIA' ? 'active' : ''}" data-shop-tab="APARENCIA">
           ✨ Aparência
@@ -1308,7 +1323,7 @@ class PocketCornerApp {
           🎁 Outros
         </button>
         <button class="popup-tab ${this.shopTab === 'DIAMANTES' ? 'active' : ''}" data-shop-tab="DIAMANTES" style="color: var(--accent-gold);">
-          💎 Pip Diamantes & VIP
+          💎 Recargas & VIP (PIX)
         </button>
       </div>
 
@@ -1375,6 +1390,18 @@ class PocketCornerApp {
 
     this.bindCommonPopupEvents();
 
+    document.getElementById('shop-coins-pill')?.addEventListener('click', () => {
+      this.shopTab = 'DIAMANTES';
+      this.shopSubTab = 'MOEDAS_PACKS';
+      this.renderShopPopup();
+    });
+
+    document.getElementById('shop-gems-pill')?.addEventListener('click', () => {
+      this.shopTab = 'DIAMANTES';
+      this.shopSubTab = 'DIAMANTES_PACKS';
+      this.renderShopPopup();
+    });
+
     document.getElementById('btn-shop-goto-gems')?.addEventListener('click', () => {
       this.shopTab = 'DIAMANTES';
       this.shopSubTab = 'DIAMANTES_PACKS';
@@ -1422,7 +1449,8 @@ class PocketCornerApp {
     if (!this.profile) return '';
 
     const doubleDPack = REAL_MONEY_PACKAGES.find((p) => p.id === 'pkg_double_d');
-    const gemPackages = REAL_MONEY_PACKAGES.filter((p) => p.id !== 'pkg_double_d');
+    const gemPackages = REAL_MONEY_PACKAGES.filter((p) => p.type === 'GEMS_PACK');
+    const coinPackages = REAL_MONEY_PACKAGES.filter((p) => p.type === 'COINS_PACK');
     const ownsDoubleD =
       (doubleDPack?.grantedItemIds || []).every((id) => this.profile!.inventory.includes(id)) ||
       false;
@@ -1520,6 +1548,46 @@ class PocketCornerApp {
                   </button>`
             }
           </div>
+        </div>
+      `;
+    }
+
+    if (this.shopSubTab === 'MOEDAS_PACKS') {
+      return `
+        ${pixCheckoutHtml}
+        <div class="items-grid">
+          ${coinPackages
+            .map((pkg) => {
+              const isLoading = this.pixCreatingPackageId === pkg.id;
+              const coinsCount = pkg.coinsAmount || 0;
+              const priceStr = this.formatBrl(pkg.priceBrl);
+              const hoverText = `${pkg.name}${pkg.bonusCoins ? ` (+${pkg.bonusCoins} de bônus incluso)` : ''} — ${pkg.description}`;
+              return `
+                <div
+                  class="item-card"
+                  title="${this.escapeHtml(hoverText)}"
+                  style="border-color: rgba(250, 204, 21, 0.35);"
+                >
+                  <div class="item-icon" style="font-size: 1.45rem;">🪙</div>
+                  <div class="item-info">
+                    <div class="item-name" style="font-size: 0.92rem; font-weight: 800; color: var(--accent-gold);">
+                      ${coinsCount} 🪙
+                    </div>
+                  </div>
+                  <div>
+                    <button
+                      class="btn btn-sm btn-gold"
+                      data-buy-real-pkg="${pkg.id}"
+                      ${isLoading ? 'disabled' : ''}
+                    >
+                      ${isLoading ? 'Gerando...' : priceStr}
+                    </button>
+                  </div>
+                  <div class="hover-desc-tooltip">${this.escapeHtml(hoverText)}</div>
+                </div>
+              `;
+            })
+            .join('')}
         </div>
       `;
     }

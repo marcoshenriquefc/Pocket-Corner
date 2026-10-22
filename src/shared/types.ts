@@ -47,9 +47,11 @@ export interface RealMoneyPackage {
   icon: string;
   badgeText?: string;
   priceBrl: number; // Valor em Reais (ex: 0.01, 5.00, 15.00, 30.00, 24.90)
-  type: 'GEMS_PACK' | 'EXCLUSIVE_BUNDLE';
+  type: 'GEMS_PACK' | 'COINS_PACK' | 'EXCLUSIVE_BUNDLE';
   gemsAmount?: number; // Quantidade total de Pip Diamantes entregues
   bonusGems?: number; // Bônus já incluso em gemsAmount (para exibição)
+  coinsAmount?: number; // Quantidade total de Moedas entregues
+  bonusCoins?: number; // Bônus já incluso em coinsAmount (para exibição)
   grantedItemIds?: string[]; // Itens exclusivos desbloqueados pelo pacote (ex: Double D Pack)
   isTestItem?: boolean;
 }
@@ -68,6 +70,7 @@ export interface PaymentTransactionRecord {
   amountBrl: number;
   status: PaymentStatus;
   gemsCredited?: number;
+  coinsCredited?: number;
   itemsGranted?: string[];
   createdAt: number;
   approvedAt?: number;
