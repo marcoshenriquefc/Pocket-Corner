@@ -1809,8 +1809,9 @@ export class PixelCanvasRenderer {
 
     ctx.restore();
 
-    // Draw Dragging / Hover highlight box
-    if (isDragging || isHovered || this.editFurnitureMode) {
+    // Draw Dragging / Hover highlight box & coordinate only in the owner's own room
+    const isMyRoom = !this.room || this.room.hostUserId === this.myUserId;
+    if (isMyRoom && (isDragging || isHovered || this.editFurnitureMode)) {
       ctx.save();
       ctx.strokeStyle = isDragging
         ? '#4ade80'
