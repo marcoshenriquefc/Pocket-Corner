@@ -27,7 +27,7 @@ import { soundEngine } from './audio/soundEngine';
 import { getApiBaseUrl, windowBridge } from './bridge/windowBridge';
 import { PixelCanvasRenderer } from './renderer/PixelCanvas';
 
-type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE' | 'ADMIN';
+type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE' | 'ADMIN' | 'FURN_EDIT';
 type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
 type ShopSubTab =
   | 'PIP'
@@ -147,6 +147,7 @@ class PocketCornerApp {
   };
 
   private selectedTargetUserId: string | null = null;
+  private editingFurnitureInstanceId: string | null = null;
   private autoIdleOnBlur = true;
   private previewAnimId = 0;
   private pendingVisitParam: string | null = null;
@@ -501,6 +502,10 @@ class PocketCornerApp {
       },
       onRemoveFurniture: (instanceId) => {
         this.socket.emit('furniture:remove', { instanceId });
+      },
+      onEditFurniture: (instanceId) => {
+        this.editingFurnitureInstanceId = instanceId;
+        this.openModal('FURN_EDIT');
       },
       onHoverStateChange: (label) => {
         if (label) {
@@ -1034,6 +1039,8 @@ class PocketCornerApp {
       this.renderProfilePopup();
     } else if (this.activeModal === 'ADMIN') {
       this.renderAdminPopup();
+    } else if (this.activeModal === 'FURN_EDIT') {
+      this.renderFurnitureEditPopup();
     } else {
       this.modalRootEl.innerHTML = '';
     }
@@ -1386,10 +1393,10 @@ class PocketCornerApp {
           </div>
 
           <div class="double-d-items-row">
-            <div class="double-d-mini-card" title="Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!">
+            <div class="double-d-mini-card" title="Pip lendário sentado na pose clássica de barba, óculos escuros, camiseta rosé, relógio no pulso e fone na mão!">
               <div style="font-size: 1.4rem;">🎧</div>
               <div style="font-size: 0.78rem; font-weight: 700; color: #fde047;">Skin DJ Double D</div>
-              <div class="hover-desc-tooltip">Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!</div>
+              <div class="hover-desc-tooltip">Pip lendário sentado na pose clássica de barba, óculos escuros, camiseta rosé, relógio no pulso e fone na mão!</div>
             </div>
             <div class="double-d-mini-card" title="Cenário urbano fiel em pixel art com grafite, muro em 2 tons, placa de rua, poste iluminado e calçada!">
               <div style="font-size: 1.4rem;">🛹</div>
@@ -2114,8 +2121,16 @@ class PocketCornerApp {
     });
   }
 
+  private getItemPriceLabel(item: CosmeticItem): string {
+    if (item.realMoneyOnly) return 'R$ 24,90 (Pack)';
+    if (item.price === 0) return 'Grátis (0 🪙)';
+    const currencyIcon = item.currency === 'COINS' ? '🪙' : '💎';
+    return `${item.price} ${currencyIcon}`;
+  }
+
   private renderCatalogItemCard(item: CosmeticItem): string {
     const owned = this.profile!.inventory.includes(item.id);
+    const isAdmin = Boolean(this.profile?.isAdmin);
     const isFurniture = item.category === 'furniture';
     const isEquipped =
       item.category !== 'furniture' &&
@@ -2131,6 +2146,9 @@ class PocketCornerApp {
       LEGENDARY: 'Lendário',
     };
     const rarityLabel = rarityLabels[item.rarity] || item.rarity;
+    const adminPriceTag = isAdmin
+      ? `<span class="rarity-badge" style="background: rgba(250, 204, 21, 0.14); color: var(--accent-gold); border: 1px solid rgba(250, 204, 21, 0.35);" title="Valor configurado no catálogo (visível para validação do Admin)">${this.getItemPriceLabel(item)}</span>`
+      : '';
 
     return `
       <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
@@ -2144,6 +2162,7 @@ class PocketCornerApp {
                 ? `<span class="rarity-badge rarity-LEGENDARY" title="Item exclusivo do Double D Pack">💿 Double D</span>`
                 : ''
             }
+            ${adminPriceTag}
           </div>
         </div>
         <div>
@@ -2172,6 +2191,120 @@ class PocketCornerApp {
         <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
       </div>
     `;
+  }
+
+  private renderFurnitureEditPopup() {
+    if (!this.profile) return;
+    const placedList = this.room?.placedFurniture || this.profile.placedFurniture || [];
+    const placed = placedList.find((f) => f.instanceId === this.editingFurnitureInstanceId);
+    if (!placed) {
+      this.closeModal();
+      return;
+    }
+
+    const meta = getCosmeticById(placed.itemId);
+    const activeColor = placed.colorVariant || 'default';
+    const activeColorMeta =
+      FURNITURE_COLOR_PALETTE.find((c) => c.id === activeColor) || FURNITURE_COLOR_PALETTE[0];
+
+    this.mountPopupWindow(
+      `
+        <div class="popup-header">
+          <div class="popup-title">
+            <span>${meta?.icon || '🛋️'}</span>
+            <span>Editar Móvel: ${this.escapeHtml(meta?.name || placed.itemId)}</span>
+          </div>
+          <button class="btn btn-icon" id="btn-close-modal">✕</button>
+        </div>
+
+        <div class="popup-body" style="gap: 14px;">
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary);">
+                🎨 Escolha a Cor do Móvel
+              </span>
+              <span style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 600;">
+                Atual: ${this.escapeHtml(activeColorMeta.label)}
+              </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+              ${FURNITURE_COLOR_PALETTE.map((col) => {
+                const isSelected = activeColor === col.id;
+                const swatchBg = col.secondary || meta?.previewColor || '#64748b';
+                return `
+                  <button
+                    class="btn btn-sm ${isSelected ? 'active-toggle' : ''}"
+                    data-popup-furn-color="${col.id}"
+                    style="display: flex; align-items: center; gap: 6px; justify-content: flex-start; padding: 7px 9px;"
+                  >
+                    <span
+                      style="width: 14px; height: 14px; border-radius: 50%; background: ${swatchBg}; border: 1px solid rgba(255,255,255,0.45); flex-shrink: 0;"
+                    ></span>
+                    <span style="font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${this.escapeHtml(col.label)}
+                    </span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
+            <label style="font-size: 0.74rem; color: var(--text-secondary);">
+              ↔️ Posição Horizontal na Sala
+            </label>
+            <input
+              type="range"
+              min="26"
+              max="334"
+              value="${Math.round(placed.x)}"
+              id="popup-furn-slider"
+              style="width: 100%; accent-color: var(--accent);"
+            />
+          </div>
+
+          <div style="display: flex; justify-content: space-between; gap: 8px; padding-top: 6px;">
+            <button class="btn btn-sm btn-primary" id="btn-popup-furn-flip" style="flex: 1; justify-content: center; padding: 8px;">
+              🔄 Virar Lado
+            </button>
+            <button class="btn btn-sm btn-danger" id="btn-popup-furn-remove" style="flex: 1; justify-content: center; padding: 8px;">
+              🗑️ Guardar na Mochila
+            </button>
+          </div>
+        </div>
+      `,
+      '420px'
+    );
+
+    this.bindCommonPopupEvents();
+
+    this.modalRootEl.querySelectorAll('[data-popup-furn-color]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const colorVariant = (btn as HTMLElement).dataset.popupFurnColor!;
+        placed.colorVariant = colorVariant;
+        this.socket.emit('furniture:color', {
+          instanceId: placed.instanceId,
+          colorVariant,
+        });
+        this.renderFurnitureEditPopup();
+      });
+    });
+
+    document.getElementById('popup-furn-slider')?.addEventListener('input', (e) => {
+      const x = Number((e.target as HTMLInputElement).value);
+      placed.x = x;
+      this.socket.emit('furniture:move', { instanceId: placed.instanceId, x });
+    });
+
+    document.getElementById('btn-popup-furn-flip')?.addEventListener('click', () => {
+      this.socket.emit('furniture:flip', { instanceId: placed.instanceId });
+    });
+
+    document.getElementById('btn-popup-furn-remove')?.addEventListener('click', () => {
+      this.socket.emit('furniture:remove', { instanceId: placed.instanceId });
+      this.closeModal();
+    });
   }
 
   private bindItemActionButtons() {
@@ -2681,7 +2814,12 @@ class PocketCornerApp {
                                 <div class="item-card ${isEquipped || isPlaced ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
                                   <div class="item-icon">${item.icon}</div>
                                   <div class="item-info">
-                                    <div class="item-name">${this.escapeHtml(item.name)}</div>
+                                    <div class="item-name">
+                                      ${this.escapeHtml(item.name)}
+                                      <span class="rarity-badge" style="background: rgba(250, 204, 21, 0.14); color: var(--accent-gold); border: 1px solid rgba(250, 204, 21, 0.35);">
+                                        ${this.getItemPriceLabel(item)}
+                                      </span>
+                                    </div>
                                   </div>
                                   <div>
                                     <button class="btn btn-sm ${isEquipped || isPlaced ? 'active-toggle' : 'btn-gold'}" data-admin-test-item="${item.id}">

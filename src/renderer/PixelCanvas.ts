@@ -46,6 +46,7 @@ export interface PixelCanvasCallbacks {
   onMoveFurniture?: (instanceId: string, x: number) => void;
   onFlipFurniture?: (instanceId: string) => void;
   onRemoveFurniture?: (instanceId: string) => void;
+  onEditFurniture?: (instanceId: string) => void;
   onHoverStateChange?: (hoverLabel: string | null) => void;
 }
 
@@ -306,6 +307,19 @@ export class PixelCanvasRenderer {
       }
     });
 
+    this.canvas.addEventListener('dblclick', (e) => {
+      const isMyRoom = this.room?.hostUserId === this.myUserId;
+      if (!isMyRoom) return;
+      const { x, y } = this.getCanvasCoords(e);
+      this.updateHoverAndClickThrough(x, y);
+      if (this.hoveredFurnitureId) {
+        e.preventDefault();
+        this.draggingFurnitureId = null;
+        soundEngine.playTone(580, 0.08, 'triangle', 0.08, 780);
+        this.callbacks.onEditFurniture?.(this.hoveredFurnitureId);
+      }
+    });
+
     this.canvas.addEventListener('contextmenu', (e) => {
       const isMyRoom = this.room?.hostUserId === this.myUserId;
       if (!isMyRoom) return;
@@ -424,7 +438,7 @@ export class PixelCanvasRenderer {
 
           if (Math.abs(x - furn.x) <= halfW && y >= minY && y <= maxY) {
             this.hoveredFurnitureId = furn.instanceId;
-            label = `🖐️ Arraste "${item?.name || 'Móvel'}" • Botão Direito: 🗑️ Guardar na Mochila`;
+            label = `🖐️ Arraste "${item?.name || 'Móvel'}" • 2x Clique: 🎨 Cor • Botão Direito: 🗑️ Guardar`;
             break;
           }
         }
@@ -2085,89 +2099,261 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-7, baseTop + 7, 14, 5);
       ctx.fillStyle = '#22d3ee';
       ctx.fillRect(-1, baseTop, 2, 4);
-    } else if (bodyId === 'body_dj_double_d') {
-      // 🎧 DJ Double D (Skin Lendária Deslumbrante Exclusiva!)
-      const beatPulse = Math.sin(this.tick * 0.22);
-      const neonColors = ['#22d3ee', '#f472b6', '#facc15', '#a855f7'];
-      const activeNeon = neonColors[(this.tick >> 3) % neonColors.length];
-      const secondaryNeon = neonColors[((this.tick >> 3) + 2) % neonColors.length];
-
-      // 1. Holographic Neon Floor Aura Ring
+    } else if (bodyId === 'body_deer') {
+      // 🦌 Veado (Galhada ramificada, pintinhas brancas e focinho fofo)
       ctx.save();
-      ctx.globalAlpha = 0.45 + beatPulse * 0.15;
-      ctx.fillStyle = activeNeon;
-      ctx.fillRect(-14, -3, 28, 3);
+      ctx.scale(dir, 1);
+      const tailFlick = Math.round(Math.sin(this.tick * 0.15) * 1.5);
+      // Little white-tipped deer tail
+      ctx.fillStyle = '#9a5825';
+      ctx.fillRect(-12, baseTop + 13 + tailFlick, 4, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-13, baseTop + 12 + tailFlick, 3, 3);
+      // Branched antlers on top
+      ctx.fillStyle = '#d6c5a3';
+      ctx.fillRect(-6, baseTop - 5, 2, 6);
+      ctx.fillRect(-9, baseTop - 4, 3, 2);
+      ctx.fillRect(-4, baseTop - 3, 2, 2);
+      ctx.fillRect(3, baseTop - 5, 2, 6);
+      ctx.fillRect(5, baseTop - 4, 3, 2);
+      ctx.fillRect(1, baseTop - 3, 2, 2);
+      // Pointed deer ears
+      ctx.fillStyle = '#9a5825';
+      ctx.fillRect(-10, baseTop + 1, 4, 3);
+      ctx.fillRect(5, baseTop + 1, 4, 3);
+      ctx.fillStyle = '#fda4af';
+      ctx.fillRect(-9, baseTop + 2, 2, 1);
+      ctx.fillRect(6, baseTop + 2, 2, 1);
+      // Warm chestnut brown head & body
+      ctx.fillStyle = '#b4692e';
+      ctx.fillRect(-9, baseTop + 4, 18, 17);
+      // Cream chest & belly
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(-3, baseTop + 11, 12, 10);
+      // White fawn spots on back
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-7, baseTop + 13, 2, 2);
+      ctx.fillRect(-5, baseTop + 16, 2, 2);
+      ctx.fillRect(-8, baseTop + 17, 2, 2);
+      // Eyes & dark snout nose
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-1, baseTop + 7, 2, 3);
+      ctx.fillRect(5, baseTop + 7, 2, 3);
+      ctx.fillStyle = '#27170c';
+      ctx.fillRect(7, baseTop + 9, 3, 2);
+      // Dark hooves
+      ctx.fillRect(-7, -3, 4, 3);
+      ctx.fillRect(3, -3, 4, 3);
+      ctx.restore();
+    } else if (bodyId === 'body_hawk') {
+      // 🦅 Gavião (Plumagem escura, peito branco rajado e bico curvo dourado)
+      ctx.save();
+      ctx.scale(dir, 1);
+      const wingFlap = Math.round(Math.sin(this.tick * 0.18) * 1.5);
+      // Dark tail feathers at back
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-13, baseTop + 15, 5, 5);
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(-14, baseTop + 17, 4, 3);
+      // Main slate/charcoal plumage body & head
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-9, baseTop + 3, 17, 18);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-9, baseTop + 2, 15, 5);
+      // White feathered chest with hawk bars
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-3, baseTop + 10, 11, 11);
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(-1, baseTop + 12, 7, 1);
+      ctx.fillRect(0, baseTop + 15, 6, 1);
+      ctx.fillRect(-1, baseTop + 18, 7, 1);
+      // Folded dark wing on side
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-8, baseTop + 9 + wingFlap, 6, 10);
+      // Fierce hawk eyes & white brow
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(1, baseTop + 5, 5, 2);
       ctx.fillStyle = '#facc15';
-      ctx.fillRect(-10, -4, 20, 2);
+      ctx.fillRect(2, baseTop + 6, 3, 3);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(3, baseTop + 7, 2, 2);
+      // Hooked golden raptor beak
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(8, baseTop + 6, 5, 4);
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(11, baseTop + 8, 2, 4);
+      // Yellow talons on floor
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-5, -3, 4, 3);
+      ctx.fillRect(2, -3, 4, 3);
+      ctx.restore();
+    } else if (bodyId === 'body_caramelo') {
+      // 🐕 Caramelo (Vira-lata Caramelo sentado, óculos escuros e camisa listrada alvinegra — 100 Diamantes)
+      ctx.save();
+      ctx.scale(dir, 1);
+      const tailWag = Math.round(Math.sin(this.tick * 0.18) * 1.5);
+
+      // 1. Raised Caramel Tail (at back) with dark pixel outline
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(-14, baseTop + 9 + tailWag, 5, 10);
+      ctx.fillStyle = '#f5820b';
+      ctx.fillRect(-13, baseTop + 10 + tailWag, 3, 8);
+
+      // 2. Sitting Hind Haunch & Back Paw (left/back side)
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-11, baseTop + 15, 5, 8);
+      ctx.fillStyle = '#f5820b';
+      ctx.fillRect(-10, baseTop + 16, 4, 7);
+      ctx.fillRect(-11, -2, 5, 2);
+
+      // 3. Black & White Vertical Striped Jersey (Corinthians style torso)
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(-8, baseTop + 10, 16, 11);
+      // White vertical stripes
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-6, baseTop + 11, 2, 9);
+      ctx.fillRect(-2, baseTop + 11, 2, 9);
+      ctx.fillRect(2, baseTop + 11, 2, 9);
+      ctx.fillRect(6, baseTop + 11, 2, 9);
+      // White V-neck collar & sleeve cuffs
+      ctx.fillRect(-3, baseTop + 10, 6, 2);
+      // Tiny Red & White Crest Badge on chest
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(3, baseTop + 13, 3, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(4, baseTop + 14, 1, 1);
+
+      // 4. Front Caramel Legs sitting upright & Paws on floor
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-5, baseTop + 18, 4, 6);
+      ctx.fillRect(2, baseTop + 18, 4, 6);
+      ctx.fillStyle = '#f5820b';
+      ctx.fillRect(-4, baseTop + 18, 3, 6);
+      ctx.fillRect(3, baseTop + 18, 3, 6);
+      // Paw toes outline
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-4, -1, 3, 1);
+      ctx.fillRect(3, -1, 3, 1);
+
+      // 5. Caramel Dog Head & Snout
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-8, baseTop, 15, 11);
+      ctx.fillStyle = '#f5820b';
+      ctx.fillRect(-7, baseTop + 1, 14, 9);
+      // Snout projecting forward
+      ctx.fillStyle = '#f5820b';
+      ctx.fillRect(4, baseTop + 5, 7, 5);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(4, baseTop + 5, 5, 2);
+      // Black nose tip & smile line
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(9, baseTop + 5, 3, 2);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(5, baseTop + 9, 4, 1);
+
+      // 6. Floppy Caramel Ears
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-10, baseTop + 2, 4, 6);
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-9, baseTop + 2, 3, 5);
+
+      // 7. Iconic Black-Framed Glasses with reflective grey/white lenses
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(-5, baseTop + 3, 13, 4);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(-3, baseTop + 4, 4, 2);
+      ctx.fillRect(3, baseTop + 4, 4, 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-3, baseTop + 4, 2, 1);
+      ctx.fillRect(3, baseTop + 4, 2, 1);
+
+      ctx.restore();
+    } else if (bodyId === 'body_dj_double_d') {
+      // 🎧 Double D (Pip Lendário sentado na pose da foto: barba, óculos escuros, camiseta rosé, calça azul-marinho, descalço, relógio e fone na mão!)
+      ctx.save();
+      ctx.scale(dir, 1);
+      const beatPulse = Math.sin(this.tick * 0.18);
+
+      // 1. Subtle Golden VIP Floor Glow
+      ctx.save();
+      ctx.globalAlpha = 0.35 + beatPulse * 0.1;
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-13, -2, 26, 2);
       ctx.restore();
 
-      // 2. Floating Golden/Neon Soundwave Wings & Musical Particles
-      const noteBob = Math.round(Math.sin(this.tick * 0.16) * 3);
-      ctx.fillStyle = activeNeon;
-      ctx.fillRect(-15, baseTop + 8 + noteBob, 3, 8);
-      ctx.fillRect(12, baseTop + 8 - noteBob, 3, 8);
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-13, baseTop - 2 + noteBob, 3, 3);
-      ctx.fillRect(-11, baseTop - 4 + noteBob, 2, 3);
-      ctx.fillRect(11, baseTop - 3 - noteBob, 3, 3);
-
-      // 3. Cyber-Gold & Obsidian DJ Jacket (Torso)
-      ctx.fillStyle = '#090d16';
-      ctx.fillRect(-9, baseTop + 12, 18, 12);
-      // Golden High-Collar Lapels & Shoulder Pads
-      ctx.fillStyle = '#eab308';
-      ctx.fillRect(-10, baseTop + 11, 4, 12);
-      ctx.fillRect(6, baseTop + 11, 4, 12);
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(-10, baseTop + 11, 3, 3);
-      ctx.fillRect(7, baseTop + 11, 3, 3);
-
-      // Golden DJ Chain on Chest + Animated Equalizer Shirt
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-4, baseTop + 13, 8, 2);
-      for (let b = 0; b < 4; b++) {
-        const bh = 2 + ((this.tick + b * 3) % 5);
-        ctx.fillStyle = neonColors[b % neonColors.length];
-        ctx.fillRect(-4 + b * 2, baseTop + 23 - bh, 2, bh);
-      }
-
-      // 4. Head & Spiky Gold-Tipped Hair
-      ctx.fillStyle = '#fed7aa';
-      ctx.fillRect(-7, baseTop + 2, 14, 10);
+      // 2. Seated Dark Navy Pants (left leg bent on ground + right knee raised up)
       ctx.fillStyle = '#111827';
-      ctx.fillRect(-8, baseTop - 1, 16, 4);
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-6, baseTop - 3, 4, 2);
-      ctx.fillRect(0, baseTop - 4, 4, 3);
-      ctx.fillRect(5, baseTop - 2, 3, 2);
+      // Seated hip & folded lower leg
+      ctx.fillRect(-10, baseTop + 17, 14, 6);
+      // Raised front knee (right side)
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(2, baseTop + 13, 6, 10);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(2, baseTop + 14, 2, 8);
 
-      // 5. Dazzling LED Equalizer Visor Shades
+      // 3. Barefoot feet resting at bottom (as in reference photo)
+      ctx.fillStyle = '#e8beac';
+      ctx.fillRect(-2, -2, 4, 2);
+      ctx.fillRect(5, -3, 5, 3);
+      ctx.fillStyle = '#d5a38e';
+      ctx.fillRect(8, -2, 2, 2);
+
+      // 4. Dusty Rose / Mauve-Pink T-Shirt (Torso)
+      ctx.fillStyle = '#d6b4ad';
+      ctx.fillRect(-9, baseTop + 10, 14, 9);
+      // Subtle shirt folds & sleeve shading
+      ctx.fillStyle = '#c29d95';
+      ctx.fillRect(-9, baseTop + 11, 4, 5);
+      ctx.fillRect(-3, baseTop + 15, 6, 3);
+
+      // 5. Head, Styled Brown Parted Hair & Full Trimmed Beard
+      ctx.fillStyle = '#ecc6b5';
+      ctx.fillRect(-7, baseTop + 1, 13, 10);
+      // Swept medium-brown hair with top volume
+      ctx.fillStyle = '#5c3a21';
+      ctx.fillRect(-8, baseTop - 2, 15, 4);
+      ctx.fillRect(-8, baseTop + 1, 3, 4);
+      ctx.fillStyle = '#784b2a';
+      ctx.fillRect(-5, baseTop - 3, 9, 2);
+      // Full trimmed dark brown beard & mustache
+      ctx.fillStyle = '#3b2213';
+      ctx.fillRect(-6, baseTop + 7, 12, 4);
+      ctx.fillRect(-7, baseTop + 5, 2, 4);
+      // Subtle confident smile inside beard
+      ctx.fillStyle = '#d5a38e';
+      ctx.fillRect(-1, baseTop + 8, 4, 1);
+
+      // 6. Square Dark Sunglasses
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-6, baseTop + 3, 13, 4);
       ctx.fillStyle = '#090d16';
-      ctx.fillRect(-7, baseTop + 5, 14, 5);
-      ctx.fillStyle = activeNeon;
-      ctx.fillRect(dir * 1 - 5, baseTop + 6, 5, 3);
-      ctx.fillStyle = secondaryNeon;
-      ctx.fillRect(dir * 1 + 1, baseTop + 6, 5, 3);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(dir * 2 - 4, baseTop + 6, 2, 1);
-      ctx.fillRect(dir * 2 + 2, baseTop + 6, 2, 1);
+      ctx.fillRect(-5, baseTop + 4, 5, 2);
+      ctx.fillRect(1, baseTop + 4, 5, 2);
+      // Lens reflection
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-4, baseTop + 4, 2, 1);
+      ctx.fillRect(2, baseTop + 4, 2, 1);
 
-      // 6. Built-in Royal Gold & Neon DJ Headphones
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-10, baseTop, 20, 2);
-      ctx.fillRect(-11, baseTop + 2, 4, 8);
-      ctx.fillRect(7, baseTop + 2, 4, 8);
-      ctx.fillStyle = activeNeon;
-      ctx.fillRect(-10, baseTop + 4, 2, 4);
-      ctx.fillRect(8, baseTop + 4, 2, 4);
+      // 7. Arms resting forward over knee + Black Wristwatch + DJ Headphones held in hand!
+      ctx.fillStyle = '#ecc6b5';
+      ctx.fillRect(-5, baseTop + 12, 11, 3);
+      // Black wristwatch on wrist
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(3, baseTop + 12, 2, 3);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(3, baseTop + 13, 2, 1);
 
-      // 7. Gold & Neon Sneakers
-      ctx.fillStyle = '#facc15';
-      ctx.fillRect(-7, -4, 5, 4);
-      ctx.fillRect(2, -4, 5, 4);
-      ctx.fillStyle = activeNeon;
-      ctx.fillRect(-7, -1, 5, 1);
-      ctx.fillRect(2, -1, 5, 1);
+      // Black & Silver DJ Headphones held in hand in front of knee
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(6, baseTop + 12, 6, 6);
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(5, baseTop + 15, 4, 4);
+      ctx.fillRect(9, baseTop + 15, 4, 4);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(6, baseTop + 16, 2, 2);
+      ctx.fillRect(10, baseTop + 16, 2, 2);
+
+      ctx.restore();
     } else {
       // Default: Humano Cozy
       ctx.fillStyle = '#fed7aa';
