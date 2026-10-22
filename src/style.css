@@ -57,15 +57,17 @@ body {
 .minimal-topbar {
   width: 100%;
   max-width: 940px;
+  box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 9px 18px;
+  gap: 8px 12px;
+  padding: 8px 14px;
   background: var(--bg-surface);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
+  border-radius: 18px;
   font-size: 0.78rem;
 }
 
@@ -73,8 +75,13 @@ body {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.topbar-right {
+  margin-left: auto;
 }
 
 .minimal-topbar .btn {
@@ -88,7 +95,7 @@ body {
   gap: 6px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-subtle);
-  padding: 5px 12px;
+  padding: 5px 11px;
   border-radius: var(--radius-pill);
   color: var(--text-primary);
   font-size: 0.76rem;
@@ -97,6 +104,12 @@ body {
   flex-shrink: 0;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.profile-chip-name {
+  max-width: 135px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .profile-chip:hover {
@@ -128,9 +141,16 @@ body {
   font-size: 0.74rem;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   white-space: nowrap;
   flex-shrink: 0;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
 }
 
 .currency-pill {

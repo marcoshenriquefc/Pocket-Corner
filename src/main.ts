@@ -1665,39 +1665,48 @@ class PocketCornerApp {
     const isHostAway = Boolean(!isMyRoom && this.room?.hostAwayVisiting);
     const playersCount = this.room?.players.length || 0;
     const isCoWorking = !isHostAway && playersCount >= 2;
+    const canCallAttention = !isMyRoom || playersCount >= 2;
 
     this.topbarEl.innerHTML = `
       <div class="topbar-left">
-        <button class="profile-chip" id="btn-open-profile" title="Alterar Nickname da Sala ou Ver Conta">
+        <button class="profile-chip" id="btn-open-profile" title="Conta: ${this.escapeHtml(this.profile.displayName)} (@${this.escapeHtml(this.profile.username)}) — Clique para alterar Nickname ou ver Conta">
           <span class="status-dot ${this.profile.hostStatus}"></span>
-          <span>${this.escapeHtml(this.profile.displayName)}</span>
-          <span style="opacity: 0.6; font-size: 0.68rem; font-weight: 500;">@${this.escapeHtml(this.profile.username)}</span>
+          <span class="profile-chip-name">${this.escapeHtml(this.profile.displayName)}</span>
         </button>
 
-        <span class="room-pill">
+        <span class="room-pill" title="${
+          isMyRoom
+            ? `Meu Cantinho (${playersCount || 1}/5 pessoas na sala)`
+            : `Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')}`
+        }">
           ${
             isMyRoom
               ? `🏠 Meu Cantinho (${playersCount || 1}/5)`
               : isHostAway
-                ? `🚀 Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')} (🪧 Volto já)`
-                : `🚀 Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
+                ? `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (🪧 Volto já)`
+                : `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
           }
         </span>
 
         ${
           isCoWorking
             ? `<span class="cowork-pill" title="Bônus Co-Working ativo! Trabalhando na mesma sala que um amigo vocês ganham +2 🪙 a cada 5 minutos.">
-                🤝 Trabalhando juntos (+2 🪙/5m)
+                🤝 +2 🪙/5m
               </span>`
             : ''
         }
 
         ${
-          !isMyRoom
-            ? `<button class="btn btn-sm btn-attention-msn" id="btn-top-attention" title="Chamar atenção estilo MSN (tremer a tela do amigo bruscamente + som clássico do MSN)">
+          canCallAttention
+            ? `<button class="btn btn-sm btn-attention-msn" id="btn-top-attention" title="Chamar atenção estilo MSN (tremer a tela bruscamente + som clássico do MSN para todos na sala)">
                  📳 Chamar Atenção
-               </button>
-               <button class="btn btn-sm btn-primary" id="btn-top-home">Voltar</button>`
+               </button>`
+            : ''
+        }
+
+        ${
+          !isMyRoom
+            ? `<button class="btn btn-sm btn-primary" id="btn-top-home" title="Voltar para o seu cantinho">🏠 Voltar</button>`
             : ''
         }
       </div>
@@ -1723,8 +1732,8 @@ class PocketCornerApp {
         <button class="btn btn-icon ${soundEngine.muted ? '' : 'active-toggle'}" id="btn-top-mute" title="Som">
           ${soundEngine.muted ? '🔇' : '🔊'}
         </button>
-        <button class="btn btn-sm ${isVideoPiP ? 'active-toggle' : 'btn-primary'}" id="btn-top-pip" title="Destacar janelinha Picture-in-Picture sem barra de título">
-          📺 ${isVideoPiP ? 'Sair PiP' : 'PiP Flutuante'}
+        <button class="btn btn-sm ${isVideoPiP ? 'active-toggle' : 'btn-primary'}" id="btn-top-pip" title="Destacar janelinha Picture-in-Picture flutuante sem barra de título">
+          📺 ${isVideoPiP ? 'Sair PiP' : 'PiP'}
         </button>
         <button class="btn btn-sm btn-danger" id="btn-top-logout" title="Sair da conta">
           Sair
@@ -1734,7 +1743,7 @@ class PocketCornerApp {
 
     const quickAttBtn = document.getElementById('btn-quick-attention');
     if (quickAttBtn) {
-      quickAttBtn.classList.toggle('visiting-friend', !isMyRoom);
+      quickAttBtn.classList.toggle('visiting-friend', canCallAttention);
     }
 
     document.getElementById('btn-open-profile')?.addEventListener('click', () => {
@@ -1932,6 +1941,8 @@ class PocketCornerApp {
     if (!stripEl || !this.profile) return;
 
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
+    const playersCount = this.room?.players.length || 0;
+    const canCallAttention = !isMyRoom || playersCount >= 2;
     const myBodyItem = getCosmeticById(this.profile.equipped.avatar_body);
 
     const others = this.directory
@@ -1957,11 +1968,11 @@ class PocketCornerApp {
       </button>
 
       ${
-        !isMyRoom
+        canCallAttention
           ? `<button
               class="quick-friend-chip msn-nudge-chip"
               id="quick-strip-attention"
-              title="Chamar atenção estilo MSN! Faz toda a tela do amigo tremer bruscamente com o som clássico de mensagem do MSN!"
+              title="Chamar atenção estilo MSN! Faz a tela de todos na sala tremer bruscamente com o som clássico de mensagem do MSN!"
             >
               <span class="quick-friend-avatar">📳</span>
               <span>Chamar Atenção!</span>
