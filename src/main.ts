@@ -567,11 +567,50 @@ class PocketCornerApp {
                 </div>
                 <button class="btn btn-icon" id="btn-quick-poke" title="Cutucar amigo (Poke)">👆</button>
                 <button class="btn btn-icon" id="btn-quick-throw" title="Jogar brinquedo">✈️</button>
-                <button class="btn btn-icon" id="btn-quick-gift" title="Deixar presente no chão">☕</button>
+                <div class="action-hover-wrap" id="gift-hover-wrap">
+                  <button class="btn btn-icon" id="btn-quick-gift" title="Deixar presente no chão (com ou sem recado no Post-it)">
+                    ☕
+                  </button>
+                  <div class="action-hover-dropdown" id="gift-hover-dropdown" style="min-width: 245px;">
+                    <div class="action-hover-title">🎁 Presente & Recado no Post-it</div>
+                    <div style="display: flex; gap: 5px; padding: 4px 4px 6px;">
+                      <input
+                        type="text"
+                        id="input-quick-postit"
+                        maxlength="68"
+                        placeholder="Escreva um Post-it opcional..."
+                        style="flex: 1; background: rgba(254, 240, 138, 0.12); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 7px; color: #fef08a; font-size: 0.72rem; padding: 5px 8px; outline: none;"
+                      />
+                      <button class="btn btn-sm btn-gold" id="btn-send-postit-gift" title="Deixar presente com este Post-it">
+                        📝 Enviar
+                      </button>
+                    </div>
+                    <button class="action-hover-item" data-postit-preset="Passei pra dar um oi, bom trabalho hoje! ☕">
+                      <span>📝</span>
+                      <span>"Passei pra dar um oi, bom trabalho!"</span>
+                    </button>
+                    <button class="action-hover-item" data-postit-preset="Trouxe um cafezinho quentinho pra você! 💛">
+                      <span>☕</span>
+                      <span>"Trouxe um cafezinho pra você! 💛"</span>
+                    </button>
+                    <button class="action-hover-item" data-postit-preset="Força no foco e nos projetos hoje! 🚀">
+                      <span>🚀</span>
+                      <span>"Força no foco e nos projetos! 🚀"</span>
+                    </button>
+                    <div class="action-hover-divider"></div>
+                    <button class="action-hover-item" data-postit-preset="">
+                      <span>🎁</span>
+                      <span>Deixar Presente (Sem Recado)</span>
+                    </button>
+                  </div>
+                </div>
                 <button class="btn btn-icon" id="btn-quick-zoom" title="Alternar Zoom da câmera (ou use a roda do mouse no cenário)">🔍</button>
                 <button class="btn btn-icon" id="btn-quick-video-pip" title="Destacar em Picture-in-Picture Sem Barra de Título">📺</button>
               </div>
             </div>
+
+            <!-- Barra Rápida de Amigos Online (1 Clique para Visitar ou Voltar para o seu Cantinho) -->
+            <div class="quick-friends-strip" id="quick-friends-strip"></div>
           </div>
         </div>
 
@@ -745,11 +784,46 @@ class PocketCornerApp {
       });
     });
 
-    document.getElementById('btn-quick-gift')!.addEventListener('click', () => {
+    const sendDeskDropWithOptionalNote = (customNote?: string) => {
       const hostId = this.room?.hostUserId || this.profile?.id || '';
+      const postitInput = document.getElementById('input-quick-postit') as HTMLInputElement | null;
+      const finalNote =
+        typeof customNote === 'string'
+          ? customNote.trim()
+          : (postitInput?.value || '').trim();
       this.socket.emit('player:interact', {
         targetUserId: hostId,
         actionType: 'DESK_DROP',
+        note: finalNote || undefined,
+      });
+      if (postitInput) {
+        postitInput.value = '';
+        postitInput.blur();
+      }
+    };
+
+    document.getElementById('btn-quick-gift')!.addEventListener('click', () => {
+      sendDeskDropWithOptionalNote();
+    });
+
+    document.getElementById('btn-send-postit-gift')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendDeskDropWithOptionalNote();
+    });
+
+    document.getElementById('input-quick-postit')?.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        sendDeskDropWithOptionalNote();
+      }
+    });
+
+    document.querySelectorAll('[data-postit-preset]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const presetNote = (btn as HTMLElement).dataset.postitPreset || '';
+        sendDeskDropWithOptionalNote(presetNote);
       });
     });
 
@@ -775,6 +849,7 @@ class PocketCornerApp {
     });
 
     this.renderFloatingDock();
+    this.renderQuickFriendsStrip();
   }
 
   private updateQuickActionsMenuState() {
@@ -870,6 +945,7 @@ class PocketCornerApp {
       this.renderer.setIdentity(profile.id);
       this.renderTopbar();
       this.renderFloatingDock();
+      this.renderQuickFriendsStrip();
       this.updateQuickActionsMenuState();
 
       // Atualiza saldo na Loja sem piscar/recriar o popup quando for apenas tick passivo de moedas
@@ -904,6 +980,7 @@ class PocketCornerApp {
       this.renderTopbar();
       this.renderKnockBanner();
       this.renderFloatingDock();
+      this.renderQuickFriendsStrip();
       this.updateQuickActionsMenuState();
 
       if (this.activeModal === 'FRIENDS' && prevPlayersLen !== nextPlayersLen) {
@@ -929,6 +1006,7 @@ class PocketCornerApp {
     this.socket.on('directory:online', (entries) => {
       this.directory = entries;
       this.renderFloatingDock();
+      this.renderQuickFriendsStrip();
       if (this.activeModal === 'FRIENDS') {
         this.renderActiveModal();
       }
@@ -967,8 +1045,15 @@ class PocketCornerApp {
       }
     });
 
-    this.socket.on('room:desk_drop_claimed', ({ itemId }) => {
+    this.socket.on('room:desk_drop_claimed', ({ itemId, claimedByUserId, fromDisplayName, note }) => {
       soundEngine.playClaimGift(itemId);
+      if (note) {
+        this.renderer.showAmbientThought(
+          claimedByUserId,
+          `📝 "${note}" — ${fromDisplayName || 'Amigo'}`,
+          7500
+        );
+      }
     });
 
     this.socket.on('shop:gachapon_result', ({ item, isDuplicate, refundCoins }) => {
@@ -1508,6 +1593,7 @@ class PocketCornerApp {
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
     const isVideoPiP = windowBridge.videoPipActive;
     const playersCount = this.room?.players.length || 1;
+    const isCoWorking = playersCount >= 2;
 
     this.topbarEl.innerHTML = `
       <div class="topbar-left">
@@ -1526,6 +1612,14 @@ class PocketCornerApp {
         </span>
 
         ${
+          isCoWorking
+            ? `<span class="cowork-pill" title="Bônus Co-Working ativo! Trabalhando na mesma sala que um amigo vocês ganham +2 🪙 a cada 5 minutos.">
+                🤝 Trabalhando juntos (+2 🪙/5m)
+              </span>`
+            : ''
+        }
+
+        ${
           !isMyRoom
             ? `<button class="btn btn-sm btn-primary" id="btn-top-home">Voltar</button>`
             : ''
@@ -1533,7 +1627,11 @@ class PocketCornerApp {
       </div>
 
       <div class="topbar-right">
-        <button class="currency-pill coins" id="btn-top-buy-coins" style="cursor: pointer;" title="Moedas (+1 a cada 5 min online) — Clique para comprar Moedas via PIX">
+        <button class="currency-pill coins" id="btn-top-buy-coins" style="cursor: pointer;" title="${
+          isCoWorking
+            ? 'Moedas (+2 a cada 5 min com bônus 🤝 Trabalhando juntos!) — Clique para comprar Moedas via PIX'
+            : 'Moedas (+1 a cada 5 min online, ou +2 acompanhado de amigos) — Clique para comprar Moedas via PIX'
+        }">
           🪙 ${this.profile.coins} <span style="font-size:0.65rem; opacity:0.85;">+</span>
         </button>
         <button class="currency-pill gems" id="btn-top-buy-gems" style="cursor: pointer;" title="Pip Diamantes — Clique para recarregar ou ver o Double D Pack">
@@ -1635,6 +1733,137 @@ class PocketCornerApp {
     });
     document.getElementById('dock-btn-backpack')?.addEventListener('click', () => {
       this.toggleModal('BACKPACK');
+    });
+  }
+
+  /**
+   * Barra de Amigos Sempre Visível abaixo da barra do palco (Acesso de 1 Clique para Visitar ou Voltar)
+   */
+  private renderQuickFriendsStrip() {
+    const stripEl = document.getElementById('quick-friends-strip');
+    if (!stripEl || !this.profile) return;
+
+    const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
+    const myBodyItem = getCosmeticById(this.profile.equipped.avatar_body);
+
+    const others = this.directory
+      .filter((d) => d.userId !== this.profile?.id)
+      .sort((a, b) => {
+        const aFriend = a.isBot || this.profile!.friends.includes(a.userId) ? 1 : 0;
+        const bFriend = b.isBot || this.profile!.friends.includes(b.userId) ? 1 : 0;
+        return bFriend - aFriend;
+      });
+
+    const botInMyRoom = Boolean(
+      this.room?.players.some((p) => p.isBot || p.userId === 'bot_pipoca')
+    );
+
+    stripEl.innerHTML = `
+      <button
+        class="quick-friend-chip ${isMyRoom ? 'active-room' : ''}"
+        id="quick-strip-home"
+        title="${isMyRoom ? 'Você está no seu cantinho' : 'Clique para voltar para o seu cantinho com 1 clique'}"
+      >
+        <span class="quick-friend-avatar">${myBodyItem?.icon || '🏠'}</span>
+        <span>Meu Cantinho</span>
+      </button>
+
+      ${others
+        .map((entry) => {
+          const bodyItem = getCosmeticById(entry.equipped.avatar_body);
+          const isVisitingThem = this.room?.hostUserId === entry.userId;
+          const isInMyRoom =
+            entry.currentRoomHostId === this.profile!.id ||
+            (isMyRoom && this.room?.players.some((p) => p.userId === entry.userId));
+          const isFriend = entry.isBot || this.profile!.friends.includes(entry.userId);
+          const statusTitle = entry.workStatus ? ` • 🪧 "${entry.workStatus}"` : '';
+          const actionHint = isVisitingThem
+            ? 'Você está visitando esta sala'
+            : entry.hostStatus === 'DND'
+              ? 'Modo DND — Clique para deixar um café com Post-it!'
+              : !isFriend
+                ? 'Clique para enviar pedido de amizade'
+                : entry.doorPermission === 'KNOCK'
+                  ? 'Clique para bater na porta (🔔 Toc-Toc)'
+                  : 'Clique para visitar com 1 clique (🤝 Co-Working +2 🪙)';
+
+          return `
+            <button
+              class="quick-friend-chip ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''}"
+              data-quick-friend="${entry.userId}"
+              title="${this.escapeHtml(entry.displayName)} (@${this.escapeHtml(entry.username)})${this.escapeHtml(statusTitle)} — ${actionHint}"
+            >
+              <span class="status-dot ${entry.hostStatus}"></span>
+              <span class="quick-friend-avatar">${bodyItem?.icon || '🧑'}</span>
+              <span>${this.escapeHtml(entry.displayName)}</span>
+              ${
+                entry.workStatus
+                  ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
+                  : isVisitingThem
+                    ? `<span class="quick-friend-tag">📍 Na sala</span>`
+                    : isInMyRoom
+                      ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
+                      : entry.hostStatus === 'DND'
+                        ? `<span class="quick-friend-tag">📫</span>`
+                        : ''
+              }
+            </button>
+          `;
+        })
+        .join('')}
+
+      ${
+        !botInMyRoom && isMyRoom
+          ? `<button
+              class="quick-friend-chip"
+              id="quick-strip-summon-bot"
+              title="Chamar o Bot Pipoca para fazer companhia na sua sala e ativar o bônus 🤝 Trabalhando juntos (+2 🪙)"
+            >
+              <span class="quick-friend-avatar">🐦</span>
+              <span>+ Chamar Pipoca</span>
+            </button>`
+          : ''
+      }
+    `;
+
+    document.getElementById('quick-strip-home')?.addEventListener('click', () => {
+      if (!isMyRoom) {
+        this.socket.emit('room:leave_visit');
+      }
+    });
+
+    document.getElementById('quick-strip-summon-bot')?.addEventListener('click', () => {
+      this.socket.emit('bot:summon_visit');
+    });
+
+    stripEl.querySelectorAll('[data-quick-friend]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetId = (btn as HTMLElement).dataset.quickFriend!;
+        const entry = this.directory.find((d) => d.userId === targetId);
+        if (!entry || !this.profile) return;
+
+        if (this.room?.hostUserId === targetId) {
+          this.showToast('info', `📍 Você já está no cantinho de ${entry.displayName}!`);
+          return;
+        }
+
+        const isFriend = entry.isBot || this.profile.friends.includes(targetId);
+        if (!isFriend) {
+          this.socket.emit('friends:add', { usernameOrId: `@${entry.username}` });
+          return;
+        }
+
+        if (entry.hostStatus === 'DND') {
+          this.socket.emit('player:interact', {
+            targetUserId: targetId,
+            actionType: 'DESK_DROP',
+            note: 'Passei pra dar um oi, bom trabalho hoje! ☕',
+          });
+          return;
+        }
+
+        this.socket.emit('room:visit', { targetUserId: targetId });
+      });
     });
   }
 
@@ -2904,6 +3133,7 @@ class PocketCornerApp {
         this.socket.emit('player:interact', {
           targetUserId,
           actionType: 'DESK_DROP',
+          note: 'Passei pra dar um oi, bom trabalho hoje! ☕',
         });
       });
     });

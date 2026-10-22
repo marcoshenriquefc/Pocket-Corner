@@ -341,6 +341,7 @@ export interface ServerToClientEvents {
     dropId: string;
     itemId: string;
     claimedByUserId: string;
+    fromDisplayName?: string;
     speedBoostSec?: number;
     bonusCoins?: number;
     note?: string;

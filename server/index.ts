@@ -1350,6 +1350,7 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
 
       const finalX = Math.max(40, Math.min(320, Math.round(dropX ?? 70 + Math.random() * 220)));
 
+      const cleanNote = note ? sanitizeChatText(note).slice(0, 68) : undefined;
       store.addDeskDrop(
         {
           id: `drop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1357,7 +1358,7 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
           fromUserId: userId,
           fromDisplayName: user.displayName,
           x: finalX,
-          note: note ? sanitizeChatText(note).slice(0, 60) : undefined,
+          note: cleanNote,
           createdAt: Date.now(),
         },
         dropHostId
@@ -1366,12 +1367,16 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       broadcastRoomState(dropHostId);
       socket.emit('system:toast', {
         type: 'success',
-        message: `${cosmetic.icon} Você deixou "${cosmetic.name}" no cantinho de ${dropHost.displayName}!`,
+        message: cleanNote
+          ? `${cosmetic.icon} Você deixou "${cosmetic.name}" com Post-it ("${cleanNote}") no cantinho de ${dropHost.displayName}!`
+          : `${cosmetic.icon} Você deixou "${cosmetic.name}" no cantinho de ${dropHost.displayName}!`,
       });
       if (dropHostId !== userId) {
         emitToUser(dropHostId, 'system:toast', {
           type: 'info',
-          message: `🎁 ${user.displayName} deixou um ${cosmetic.name} no chão do seu cantinho! Clique nele!`,
+          message: cleanNote
+            ? `🎁 ${user.displayName} deixou ${cosmetic.name} com um Post-it 📝: "${cleanNote}"!`
+            : `🎁 ${user.displayName} deixou um ${cosmetic.name} no chão do seu cantinho! Clique nele!`,
         });
       }
       return;
@@ -1456,6 +1461,7 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       dropId,
       itemId: result.item.id,
       claimedByUserId: userId,
+      fromDisplayName: result.drop.fromDisplayName,
       speedBoostSec: result.item.meta?.speedBoostSec,
       bonusCoins: claimedBonusCoins,
       note: result.drop.note,
@@ -1466,7 +1472,7 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       ? `${coinMsg ? ' + ' : ''}Velocidade 2x por ${result.item.meta.speedBoostSec}s!`
       : '';
     const effectParen = coinMsg || boostMsg ? ` (${coinMsg}${boostMsg})` : '';
-    const noteMsg = result.drop.note ? ` Recado: "${result.drop.note}"` : '';
+    const noteMsg = result.drop.note ? ` • 📝 Post-it: "${result.drop.note}"` : '';
 
     socket.emit('system:toast', {
       type: 'success',
@@ -1889,7 +1895,7 @@ function triggerBotEnterRoom(hostUserId: string) {
 }
 
 // ==========================================
-// PASSIVE IDLE CURRENCY TICK (1 Moeda a cada 5 minutos online = 300.000 ms)
+// PASSIVE IDLE CURRENCY TICK (1 Moeda a cada 5 min sozinho • 2 Moedas em Co-Working 🤝)
 // ==========================================
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 setInterval(() => {
@@ -1898,7 +1904,11 @@ setInterval(() => {
     const u = store.getUserById(userId);
     if (!u) continue;
 
-    u.coins += 1;
+    const currentHostId = store.userCurrentRoom.get(userId) || userId;
+    const currentRoom = store.rooms.get(currentHostId);
+    const isCoWorking = (currentRoom?.players.size || 0) >= 2;
+
+    u.coins += isCoWorking ? 2 : 1;
     emitToUser(userId, 'auth:profile', u);
   }
   store.saveDB();

@@ -758,7 +758,9 @@ export class PixelCanvasRenderer {
           if (dx <= 16 && dy <= 16) {
             this.hoveredDropId = drop.id;
             const item = getCosmeticById(drop.itemId);
-            label = `🎁 Clique para pegar ${item?.name || 'Presente'} (de ${drop.fromDisplayName})`;
+            label = drop.note
+              ? `🎁 ${item?.name || 'Presente'} de ${drop.fromDisplayName} • 📝 "${drop.note}" — Clique para pegar`
+              : `🎁 Clique para pegar ${item?.name || 'Presente'} (de ${drop.fromDisplayName})`;
             break;
           }
         }
@@ -1013,9 +1015,39 @@ export class PixelCanvasRenderer {
     ctx.restore();
 
     // Screen-Space HUD (visível inclusive dentro do PiP Flutuante via captureStream)
+    if ((this.room.players.length || 0) >= 2) {
+      this.drawCoWorkingHud(ctx);
+    }
     if (this.focusOverlay && this.focusOverlay.active) {
       this.drawFocusTimerHud(ctx, W, H);
     }
+  }
+
+  /**
+   * Ícone discreto de "🤝 Trabalhando juntos (+2 🪙)" no canto superior esquerdo do Canvas
+   */
+  private drawCoWorkingHud(ctx: CanvasRenderingContext2D) {
+    if (!this.room || this.room.players.length < 2) return;
+    const label = '🤝 Trabalhando juntos (+2 🪙)';
+
+    ctx.save();
+    ctx.font = 'bold 8px monospace';
+    const textW = ctx.measureText(label).width;
+    const boxW = Math.round(textW + 12);
+    const boxH = 15;
+    const boxX = 6;
+    const boxY = 6;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.84)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = 'rgba(74, 222, 128, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+    ctx.fillStyle = '#86efac';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, boxX + boxW / 2, boxY + 10.5);
+    ctx.restore();
   }
 
   /**
@@ -2568,7 +2600,50 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-5, 5, 10, 2);
       ctx.fillRect(-5, 9, 7, 2);
     }
+
+    // Se o presente tiver um recado personalizado, desenha um mini Post-it amarelo colado ao lado!
+    if (drop.note) {
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(6, 3, 8, 8);
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(12, 9, 2, 2);
+      // Alfinete vermelho no topo do Post-it
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(9, 2, 2, 2);
+      // Linhas de texto em pixel art no Post-it
+      ctx.fillStyle = '#854d0e';
+      ctx.fillRect(7, 5, 5, 1);
+      ctx.fillRect(7, 7, 4, 1);
+    }
     ctx.restore();
+
+    // Quando passa o mouse sobre um presente com Post-it, exibe o bilhetinho amarelo flutuando acima dele
+    if (isHovered && drop.note) {
+      ctx.save();
+      ctx.font = 'bold 8px monospace';
+      const noteLabel = `📝 "${drop.note}"`;
+      const boxW = Math.min(220, Math.round(ctx.measureText(noteLabel).width + 14));
+      const boxH = 16;
+      const clampedX = Math.max(
+        boxW / 2 + 6,
+        Math.min(PixelCanvasRenderer.WIDTH - boxW / 2 - 6, x)
+      );
+      const topY = y - 24;
+
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(clampedX - boxW / 2, topY, boxW, boxH);
+      ctx.strokeStyle = '#ca8a04';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(clampedX - boxW / 2 + 0.5, topY + 0.5, boxW - 1, boxH - 1);
+
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(clampedX - 1, topY + 1, 3, 2);
+
+      ctx.fillStyle = '#451a03';
+      ctx.textAlign = 'center';
+      ctx.fillText(noteLabel, clampedX, topY + 11.5);
+      ctx.restore();
+    }
   }
 
   private drawKnockPeeker(
