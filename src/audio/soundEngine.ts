@@ -127,6 +127,29 @@ class SoundEngine {
       setTimeout(() => this.playTone(n, 0.12, 'square', 0.07), i * 65);
     });
   }
+
+  /**
+   * Sino suave e harmônico para transição do Pomodoro / Timer de Foco
+   */
+  public playFocusBell() {
+    const chord = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    chord.forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, 0.55, 'sine', 0.09);
+      }, idx * 110);
+    });
+  }
+
+  /**
+   * Toque discreto de gotinha / harpa para lembrete de bem-estar
+   */
+  public playWellnessChime() {
+    this.playTone(587.33, 0.22, 'sine', 0.06, 880);
+    setTimeout(() => {
+      this.playTone(880, 0.32, 'sine', 0.06);
+    }, 140);
+  }
 }
 
 export const soundEngine = new SoundEngine();
+

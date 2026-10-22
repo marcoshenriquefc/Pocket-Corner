@@ -32,7 +32,15 @@ import {
   getLocalDayTimeInfo,
 } from './renderer/PixelCanvas';
 
-type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE' | 'ADMIN' | 'FURN_EDIT';
+type ActiveModal =
+  | 'NONE'
+  | 'SHOP'
+  | 'FRIENDS'
+  | 'BACKPACK'
+  | 'PROFILE'
+  | 'ADMIN'
+  | 'FURN_EDIT'
+  | 'WORK_HUB';
 type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
 type ShopSubTab =
   | 'PIP'
@@ -51,6 +59,33 @@ type ShopSubTab =
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
 type AdminTab = 'TRANSACTIONS' | 'PURCHASES' | 'TEST_ITEMS';
+
+interface FocusTimerState {
+  active: boolean;
+  phase: 'FOCUS' | 'BREAK';
+  focusMinutes: number;
+  breakMinutes: number;
+  remainingSec: number;
+  totalSec: number;
+  activity: 'TYPING' | 'READING';
+}
+
+const WELLNESS_REMINDER_MESSAGES = [
+  '💧 Hora de beber água! Hidrate-se um pouquinho!',
+  '🧘 Estica as costas e relaxa os ombros um pouquinho!',
+  '👀 Descanse os olhos: olhe para longe por 20 segundos!',
+  '🌬️ Respire fundo 3 vezes e alongue o pescoço! ✨',
+];
+
+const WORK_STATUS_PRESETS = [
+  '💻 Codando focado',
+  '🎬 Editando vídeo',
+  '📅 Em reunião até 15h',
+  '🍝 Almoçando',
+  '☕ Pausa pro café',
+  '📚 Estudando / Lendo',
+  '🎧 Focado no trabalho',
+];
 
 interface AuthSession {
   mode: 'google' | 'local';
@@ -119,6 +154,7 @@ declare global {
 }
 
 const AUTH_SESSION_KEY = 'pc_auth_session';
+const WELLNESS_PREF_KEY = 'pc_wellness_enabled';
 
 class PocketCornerApp {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -162,6 +198,11 @@ class PocketCornerApp {
   private autoIdleOnBlur = true;
   private previewAnimId = 0;
   private pendingVisitParam: string | null = null;
+
+  private focusTimer: FocusTimerState | null = null;
+  private wellnessRemindersEnabled = localStorage.getItem(WELLNESS_PREF_KEY) !== '0';
+  private nextWellnessReminderAt = Date.now() + 60 * 60 * 1000;
+  private wellnessMsgIndex = 0;
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -491,6 +532,39 @@ class PocketCornerApp {
                     </button>
                   </div>
                 </div>
+                <div class="action-hover-wrap" id="focus-hover-wrap">
+                  <button class="btn btn-icon" id="btn-quick-focus" title="Timer de Foco (Pomodoro), Plaquinha de Status & Bem-Estar">
+                    🍅
+                  </button>
+                  <div class="action-hover-dropdown" id="focus-hover-dropdown" style="min-width: 215px;">
+                    <div class="action-hover-title">🍅 Pomodoro & Trabalho</div>
+                    <button class="action-hover-item" data-focus-preset="25:5:TYPING">
+                      <span>💻</span>
+                      <span>Foco 25m / 5m (+5 🪙)</span>
+                    </button>
+                    <button class="action-hover-item" data-focus-preset="25:5:READING">
+                      <span>📖</span>
+                      <span>Leitura 25m / 5m (+5 🪙)</span>
+                    </button>
+                    <button class="action-hover-item" data-focus-preset="50:10:TYPING">
+                      <span>🔥</span>
+                      <span>Foco 50m / 10m (+10 🪙)</span>
+                    </button>
+                    <button class="action-hover-item" id="btn-quick-focus-stop" style="display: none; color: #f87171;">
+                      <span>⏹️</span>
+                      <span>Parar Timer Atual</span>
+                    </button>
+                    <div class="action-hover-divider"></div>
+                    <button class="action-hover-item" id="btn-quick-work-status">
+                      <span>🪧</span>
+                      <span>No que estou trabalhando...</span>
+                    </button>
+                    <button class="action-hover-item" id="btn-quick-wellness-toggle">
+                      <span>💧</span>
+                      <span id="quick-wellness-label">Bem-Estar (1h): Ativo</span>
+                    </button>
+                  </div>
+                </div>
                 <button class="btn btn-icon" id="btn-quick-poke" title="Cutucar amigo (Poke)">👆</button>
                 <button class="btn btn-icon" id="btn-quick-throw" title="Jogar brinquedo">✈️</button>
                 <button class="btn btn-icon" id="btn-quick-gift" title="Deixar presente no chão">☕</button>
@@ -570,6 +644,10 @@ class PocketCornerApp {
       onInteractWindow: () => {
         this.interactWithWindow();
       },
+      onEditWorkStatus: () => {
+        this.recordManualInput();
+        this.openModal('WORK_HUB');
+      },
       onHoverStateChange: (label) => {
         if (label) {
           this.hoverTooltipEl.textContent = label;
@@ -618,6 +696,40 @@ class PocketCornerApp {
         }
       });
     });
+
+    document.getElementById('btn-quick-focus')?.addEventListener('click', () => {
+      this.openModal('WORK_HUB');
+    });
+
+    document.querySelectorAll('[data-focus-preset]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const raw = (btn as HTMLElement).dataset.focusPreset || '25:5:TYPING';
+        const [fStr, bStr, actStr] = raw.split(':');
+        this.startFocusTimer(
+          Number(fStr) || 25,
+          Number(bStr) || 5,
+          (actStr === 'READING' ? 'READING' : 'TYPING') as 'TYPING' | 'READING'
+        );
+      });
+    });
+
+    document.getElementById('btn-quick-focus-stop')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.stopFocusTimer(true);
+    });
+
+    document.getElementById('btn-quick-work-status')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openModal('WORK_HUB');
+    });
+
+    document.getElementById('btn-quick-wellness-toggle')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleWellnessReminders();
+    });
+
+    this.updateFocusQuickMenuState();
 
     document.getElementById('btn-quick-poke')!.addEventListener('click', () => {
       this.socket.emit('player:interact', {
@@ -960,6 +1072,8 @@ class PocketCornerApp {
     if (!this.room || !this.profile) return;
     if (this.profile.hostStatus === 'DND') return;
     if (this.activeModal === 'FURN_EDIT') return;
+    // Durante um bloco de Foco do Pomodoro, mantém o Pip concentrado sem interromper a atividade
+    if (this.focusTimer?.active && this.focusTimer.phase === 'FOCUS') return;
 
     const me = this.room.players.find((p) => p.userId === this.profile?.id);
     if (!me) return;
@@ -1075,6 +1189,248 @@ class PocketCornerApp {
     this.walkToPointOfInterest(chosen.x, chosen.activity, chosen.thought, false);
   }
 
+  private startFocusTimer(
+    focusMinutes: number,
+    breakMinutes: number,
+    activity: 'TYPING' | 'READING' = 'TYPING'
+  ) {
+    if (!this.profile) return;
+    const totalSec = Math.max(60, focusMinutes * 60);
+    this.focusTimer = {
+      active: true,
+      phase: 'FOCUS',
+      focusMinutes,
+      breakMinutes,
+      remainingSec: totalSec,
+      totalSec,
+      activity,
+    };
+
+    this.manualActionSelected = true;
+    this.isInFurnitureOrWanderActivity = false;
+
+    // Se houver um móvel compatível (PC Gamer / Cadeira / Estante / Luminária), o Pip caminha até ele para focar!
+    const matchingFurn = (this.room?.placedFurniture || []).find((f) => {
+      const inter = getFurnitureInteraction(f.itemId);
+      return inter.activity === activity;
+    });
+
+    if (matchingFurn) {
+      this.walkToPointOfInterest(
+        matchingFurn.x,
+        activity,
+        `🍅 Foco ${focusMinutes}m iniciado! Vamos produzir juntos!`,
+        true
+      );
+      this.manualActionSelected = true;
+    } else {
+      this.socket?.emit('host:set_status', {
+        status: 'IDLE',
+        idleActivity: activity,
+      });
+      this.renderer.showAmbientThought(
+        this.profile.id,
+        `🍅 Foco ${focusMinutes}m iniciado! Vamos produzir juntos!`,
+        5500
+      );
+    }
+
+    soundEngine.playTone(523.25, 0.14, 'triangle', 0.08, 659.25);
+    this.syncFocusOverlay();
+    this.updateFocusQuickMenuState();
+    this.showToast(
+      'info',
+      `🍅 Ciclo de Foco (${focusMinutes}m / ${breakMinutes}m) iniciado! Contador ativo no cantinho da tela.`
+    );
+    if (this.activeModal === 'WORK_HUB') {
+      this.renderWorkHubPopup();
+    }
+  }
+
+  private stopFocusTimer(showNotification = true) {
+    this.focusTimer = null;
+    this.renderer.setFocusOverlay(null);
+    this.updateFocusQuickMenuState();
+    if (showNotification) {
+      this.showToast('info', '⏹️ Timer de Foco encerrado.');
+    }
+    if (this.activeModal === 'WORK_HUB') {
+      this.renderWorkHubPopup();
+    }
+  }
+
+  private syncFocusOverlay() {
+    if (!this.focusTimer || !this.focusTimer.active) {
+      this.renderer.setFocusOverlay(null);
+      return;
+    }
+    this.renderer.setFocusOverlay({
+      active: true,
+      phase: this.focusTimer.phase,
+      remainingSec: this.focusTimer.remainingSec,
+      totalSec: this.focusTimer.totalSec,
+      activity: this.focusTimer.activity,
+      rewardCoins: this.focusTimer.focusMinutes >= 45 ? 10 : 5,
+    });
+  }
+
+  private updateFocusQuickMenuState() {
+    const btnEl = document.getElementById('btn-quick-focus');
+    const stopBtn = document.getElementById('btn-quick-focus-stop');
+    const wellnessLabel = document.getElementById('quick-wellness-label');
+
+    if (btnEl) {
+      if (this.focusTimer?.active) {
+        btnEl.textContent = this.focusTimer.phase === 'FOCUS' ? '🍅' : '☕';
+        btnEl.classList.add('active-toggle');
+      } else {
+        btnEl.textContent = '🍅';
+        btnEl.classList.remove('active-toggle');
+      }
+    }
+
+    if (stopBtn) {
+      stopBtn.style.display = this.focusTimer?.active ? 'flex' : 'none';
+    }
+
+    if (wellnessLabel) {
+      wellnessLabel.textContent = `Bem-Estar (1h): ${
+        this.wellnessRemindersEnabled ? 'Ativo ✓' : 'Desativado'
+      }`;
+    }
+  }
+
+  private toggleWellnessReminders() {
+    this.wellnessRemindersEnabled = !this.wellnessRemindersEnabled;
+    localStorage.setItem(WELLNESS_PREF_KEY, this.wellnessRemindersEnabled ? '1' : '0');
+    this.nextWellnessReminderAt = Date.now() + 60 * 60 * 1000;
+    this.updateFocusQuickMenuState();
+    this.showToast(
+      'info',
+      this.wellnessRemindersEnabled
+        ? '💧 Lembretes gentis de Bem-Estar (a cada 1h) ativados!'
+        : '💧 Lembretes de Bem-Estar desativados.'
+    );
+    if (this.activeModal === 'WORK_HUB') {
+      this.renderWorkHubPopup();
+    }
+  }
+
+  private triggerWellnessReminder() {
+    if (!this.profile) return;
+    const msg =
+      WELLNESS_REMINDER_MESSAGES[this.wellnessMsgIndex % WELLNESS_REMINDER_MESSAGES.length];
+    this.wellnessMsgIndex++;
+    soundEngine.playWellnessChime();
+    this.renderer.showAmbientThought(this.profile.id, msg, 8500);
+  }
+
+  private setWorkStatus(rawStatus: string) {
+    const clean = rawStatus.trim().slice(0, 38);
+    this.socket?.emit('host:set_work_status', { workStatus: clean });
+    if (this.profile) {
+      this.profile.workStatus = clean;
+      if (clean) {
+        this.renderer.showAmbientThought(this.profile.id, `🪧 ${clean}`, 4500);
+      }
+    }
+    if (this.room && this.room.hostUserId === this.profile?.id) {
+      this.room.hostWorkStatus = clean;
+    }
+    this.showToast(
+      'success',
+      clean
+        ? `🪧 Plaquinha da mesa atualizada: "${clean}"`
+        : '🪧 Plaquinha da mesa limpa!'
+    );
+    if (this.activeModal === 'WORK_HUB') {
+      this.renderWorkHubPopup();
+    } else if (this.activeModal === 'FRIENDS') {
+      this.renderFriendsPopup();
+    }
+  }
+
+  private tickFocusAndWellness() {
+    const now = Date.now();
+
+    // 1. Lembrete gentil de Bem-Estar a cada 1h de trabalho contínuo
+    if (this.wellnessRemindersEnabled && this.profile && now >= this.nextWellnessReminderAt) {
+      this.nextWellnessReminderAt = now + 60 * 60 * 1000;
+      this.triggerWellnessReminder();
+    }
+
+    // 2. Contagem regressiva do Timer de Foco / Pomodoro Silencioso
+    if (this.focusTimer && this.focusTimer.active) {
+      this.focusTimer.remainingSec = Math.max(0, this.focusTimer.remainingSec - 1);
+      this.syncFocusOverlay();
+
+      if (this.focusTimer.remainingSec <= 0) {
+        if (this.focusTimer.phase === 'FOCUS') {
+          // Concluiu o bloco de Foco! Toca sino suave, levanta, pega café e recebe bônus de moedas!
+          const completedMins = this.focusTimer.focusMinutes;
+          const breakMins = this.focusTimer.breakMinutes;
+          const rewardCoins = completedMins >= 45 ? 10 : 5;
+
+          soundEngine.playFocusBell();
+          if (this.profile) {
+            this.renderer.triggerJump(this.profile.id);
+            this.socket?.emit('player:jump');
+            this.socket?.emit('economy:claim_focus_reward', { focusMinutes: completedMins });
+            this.renderer.showAmbientThought(
+              this.profile.id,
+              `☕ Bloco concluído! Hora de pausa e café! (+${rewardCoins} 🪙)`,
+              7500
+            );
+          }
+
+          // Se houver cafeteira ou mesa de café na sala, caminha até ela para tomar o café da pausa!
+          const coffeeFurn = (this.room?.placedFurniture || []).find(
+            (f) =>
+              f.itemId === 'furn_coffee_machine' ||
+              f.itemId === 'furn_dining_table' ||
+              f.itemId === 'furn_mini_fridge'
+          );
+          if (coffeeFurn) {
+            this.walkToPointOfInterest(
+              coffeeFurn.x,
+              'COFFEE',
+              `☕ Pausa merecida de ${breakMins} min (+${rewardCoins} 🪙)!`,
+              false
+            );
+          }
+
+          this.focusTimer.phase = 'BREAK';
+          this.focusTimer.totalSec = Math.max(60, breakMins * 60);
+          this.focusTimer.remainingSec = this.focusTimer.totalSec;
+          this.syncFocusOverlay();
+          this.updateFocusQuickMenuState();
+        } else {
+          // Concluiu a Pausa!
+          soundEngine.playFocusBell();
+          if (this.profile) {
+            this.renderer.showAmbientThought(
+              this.profile.id,
+              '✨ Pausa concluída! Pronto para o próximo ciclo quando quiser.',
+              6000
+            );
+          }
+          this.showToast('success', '✨ Pausa do Pomodoro concluída!');
+          this.stopFocusTimer(false);
+        }
+      }
+
+      // Atualiza o contador ao vivo se o modal WORK_HUB estiver aberto
+      const liveCounterEl = document.getElementById('work-hub-live-timer');
+      if (liveCounterEl && this.focusTimer) {
+        const mm = String(Math.floor(this.focusTimer.remainingSec / 60)).padStart(2, '0');
+        const ss = String(this.focusTimer.remainingSec % 60).padStart(2, '0');
+        liveCounterEl.textContent = `${
+          this.focusTimer.phase === 'FOCUS' ? '🍅 FOCO' : '☕ PAUSA'
+        } ${mm}:${ss}`;
+      }
+    }
+  }
+
   private setupKeyboardAndFocusListeners() {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.activeModal !== 'NONE') {
@@ -1113,7 +1469,8 @@ class PocketCornerApp {
         !this.autoIdleOnBlur ||
         !this.profile ||
         this.manualActionSelected ||
-        this.isInFurnitureOrWanderActivity
+        this.isInFurnitureOrWanderActivity ||
+        this.focusTimer?.active
       ) {
         return;
       }
@@ -1127,7 +1484,8 @@ class PocketCornerApp {
         !this.autoIdleOnBlur ||
         !this.profile ||
         this.manualActionSelected ||
-        this.isInFurnitureOrWanderActivity
+        this.isInFurnitureOrWanderActivity ||
+        this.focusTimer?.active
       ) {
         return;
       }
@@ -1140,6 +1498,7 @@ class PocketCornerApp {
       if (this.room && this.room.pendingKnocks.length > 0) {
         this.renderKnockBanner();
       }
+      this.tickFocusAndWellness();
       this.triggerAutonomousWanderIfIdle();
     }, 1000);
   }
@@ -1381,9 +1740,185 @@ class PocketCornerApp {
       this.renderAdminPopup();
     } else if (this.activeModal === 'FURN_EDIT') {
       this.renderFurnitureEditPopup();
+    } else if (this.activeModal === 'WORK_HUB') {
+      this.renderWorkHubPopup();
     } else {
       this.modalRootEl.innerHTML = '';
     }
+  }
+
+  private renderWorkHubPopup() {
+    if (!this.profile) return;
+    const currentStatus = (this.profile.workStatus || '').trim();
+    const timer = this.focusTimer;
+    const mins = timer ? String(Math.floor(timer.remainingSec / 60)).padStart(2, '0') : '00';
+    const secs = timer ? String(timer.remainingSec % 60).padStart(2, '0') : '00';
+
+    this.mountPopupWindow(
+      `
+        <div class="popup-header">
+          <div class="popup-title">
+            <span>🍅</span>
+            <span>Foco (Pomodoro), Plaquinha & Bem-Estar</span>
+          </div>
+          <button class="btn btn-icon" id="btn-close-modal">✕</button>
+        </div>
+
+        <div class="popup-body" style="gap: 14px;">
+          <!-- 1. Plaquinha de Status de Trabalho ("No que estou trabalhando") -->
+          <div class="item-card" style="flex-direction: column; align-items: stretch; gap: 10px; background: rgba(250, 204, 21, 0.06); border-color: rgba(250, 204, 21, 0.28);">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+              <div>
+                <div class="item-name">🪧 Plaquinha da Mesa ("No que estou trabalhando")</div>
+                <div class="item-sub">Fica visível na sua mesa quando amigos visitam sua sala e na lista online</div>
+              </div>
+              ${
+                currentStatus
+                  ? `<button class="btn btn-sm btn-danger" id="btn-clear-work-status">Limpar</button>`
+                  : ''
+              }
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <input
+                type="text"
+                id="input-work-status"
+                class="chat-input-minimal"
+                maxlength="38"
+                value="${this.escapeHtml(currentStatus)}"
+                style="flex: 1; background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
+                placeholder="Ex.: Editando vídeo, Em reunião até 15h, Almoçando 🍝..."
+              />
+              <button class="btn btn-primary" id="btn-save-work-status">Salvar Plaquinha</button>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${WORK_STATUS_PRESETS.map(
+                (preset) => `
+                  <button
+                    class="btn btn-sm ${currentStatus === preset ? 'active-toggle' : ''}"
+                    data-work-preset="${this.escapeHtml(preset)}"
+                  >
+                    ${this.escapeHtml(preset)}
+                  </button>
+                `
+              ).join('')}
+            </div>
+          </div>
+
+          <!-- 2. Timer de Foco / Pomodoro Silencioso Integrado ao Pip -->
+          <div class="item-card" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div>
+                <div class="item-name">🍅 Timer de Foco / Pomodoro Silencioso</div>
+                <div class="item-sub">
+                  O Pip foca com você (💻 ou 📖), mostra o contador no cantinho (inclusive no PiP) e ganha moedas na pausa!
+                </div>
+              </div>
+              ${
+                timer && timer.active
+                  ? `<div style="display: flex; align-items: center; gap: 8px;">
+                      <span id="work-hub-live-timer" class="currency-pill coins" style="font-size: 0.78rem;">
+                        ${timer.phase === 'FOCUS' ? '🍅 FOCO' : '☕ PAUSA'} ${mins}:${secs}
+                      </span>
+                      <button class="btn btn-sm btn-danger" id="btn-hub-stop-focus">⏹️ Parar</button>
+                    </div>`
+                  : ''
+              }
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+              <button class="btn btn-sm btn-primary" data-hub-focus="25:5:TYPING" style="justify-content: center; padding: 9px;">
+                💻 25m Foco / 5m Pausa (+5 🪙)
+              </button>
+              <button class="btn btn-sm btn-primary" data-hub-focus="25:5:READING" style="justify-content: center; padding: 9px;">
+                📖 25m Leitura / 5m Pausa (+5 🪙)
+              </button>
+              <button class="btn btn-sm btn-gold" data-hub-focus="50:10:TYPING" style="justify-content: center; padding: 9px;">
+                🔥 50m Foco / 10m Pausa (+10 🪙)
+              </button>
+              <button class="btn btn-sm btn-gold" data-hub-focus="50:10:READING" style="justify-content: center; padding: 9px;">
+                📚 50m Leitura / 10m Pausa (+10 🪙)
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. Lembretes Gentis de Bem-Estar (A cada 1h) -->
+          <div class="item-card" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <div class="item-name">💧 Lembretes Gentis de Bem-Estar (Opcional)</div>
+              <div class="item-sub">
+                A cada 1h de trabalho contínuo, o Pip lembra você de beber água ou alongar as costas
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="btn btn-sm" id="btn-test-wellness" title="Ver exemplo de balãozinho agora">
+                💬 Testar Agora
+              </button>
+              <button
+                class="btn btn-sm ${this.wellnessRemindersEnabled ? 'active-toggle' : ''}"
+                id="btn-hub-toggle-wellness"
+              >
+                ${this.wellnessRemindersEnabled ? '✓ Ativado (1h)' : 'Desativado'}
+              </button>
+            </div>
+          </div>
+        </div>
+      `,
+      '560px'
+    );
+
+    this.bindCommonPopupEvents();
+
+    const saveStatus = () => {
+      const inp = document.getElementById('input-work-status') as HTMLInputElement | null;
+      if (!inp) return;
+      this.setWorkStatus(inp.value);
+    };
+
+    document.getElementById('btn-save-work-status')?.addEventListener('click', saveStatus);
+    document.getElementById('input-work-status')?.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
+        e.preventDefault();
+        saveStatus();
+      }
+    });
+
+    document.getElementById('btn-clear-work-status')?.addEventListener('click', () => {
+      this.setWorkStatus('');
+    });
+
+    this.modalRootEl.querySelectorAll('[data-work-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const val = (btn as HTMLElement).dataset.workPreset || '';
+        this.setWorkStatus(val);
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-hub-focus]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const raw = (btn as HTMLElement).dataset.hubFocus || '25:5:TYPING';
+        const [fStr, bStr, actStr] = raw.split(':');
+        this.startFocusTimer(
+          Number(fStr) || 25,
+          Number(bStr) || 5,
+          (actStr === 'READING' ? 'READING' : 'TYPING') as 'TYPING' | 'READING'
+        );
+      });
+    });
+
+    document.getElementById('btn-hub-stop-focus')?.addEventListener('click', () => {
+      this.stopFocusTimer(true);
+    });
+
+    document.getElementById('btn-hub-toggle-wellness')?.addEventListener('click', () => {
+      this.toggleWellnessReminders();
+    });
+
+    document.getElementById('btn-test-wellness')?.addEventListener('click', () => {
+      this.triggerWellnessReminder();
+      this.showToast('info', '💧 Balãozinho de bem-estar exibido no seu Pip!');
+    });
   }
 
   /**
@@ -2076,6 +2611,13 @@ class PocketCornerApp {
                               <div class="item-sub">
                                 @${this.escapeHtml(entry.username)} • ${entry.visitorCount}/4
                               </div>
+                              ${
+                                entry.workStatus
+                                  ? `<div style="font-size: 0.68rem; color: var(--accent-gold); margin-top: 2px;">
+                                      🪧 ${this.escapeHtml(entry.workStatus)}
+                                    </div>`
+                                  : ''
+                              }
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
                               ${
@@ -2108,6 +2650,23 @@ class PocketCornerApp {
                   : this.friendsTab === 'MY_ROOM'
                     ? `
                       <div style="display: flex; flex-direction: column; gap: 14px;">
+                        <!-- Plaquinha de Status de Trabalho -->
+                        <div class="item-card" style="flex-wrap: wrap; background: rgba(250, 204, 21, 0.06); border-color: rgba(250, 204, 21, 0.28);">
+                          <div>
+                            <div class="item-name">🪧 Plaquinha da Mesa ("No que estou trabalhando")</div>
+                            <div class="item-sub">
+                              ${
+                                this.profile.workStatus
+                                  ? `Atual: "${this.escapeHtml(this.profile.workStatus)}"`
+                                  : 'Nenhuma frase definida na plaquinha da mesa'
+                              }
+                            </div>
+                          </div>
+                          <button class="btn btn-sm btn-gold" id="btn-friends-open-work-hub">
+                            🍅 Plaquinha & Pomodoro
+                          </button>
+                        </div>
+
                         <!-- Status e Porta -->
                         <div class="item-card" style="flex-wrap: wrap;">
                           <div>
@@ -2228,6 +2787,10 @@ class PocketCornerApp {
       `);
 
       this.bindCommonPopupEvents();
+
+      document.getElementById('btn-friends-open-work-hub')?.addEventListener('click', () => {
+        this.openModal('WORK_HUB');
+      });
 
       this.modalRootEl.querySelectorAll('[data-friends-tab]').forEach((btn) => {
         btn.addEventListener('click', () => {

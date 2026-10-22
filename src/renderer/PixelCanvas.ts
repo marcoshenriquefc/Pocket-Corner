@@ -211,6 +211,15 @@ interface Particle {
   life: number;
 }
 
+export interface FocusCanvasOverlayState {
+  active: boolean;
+  phase: 'FOCUS' | 'BREAK';
+  remainingSec: number;
+  totalSec: number;
+  activity: 'TYPING' | 'READING';
+  rewardCoins: number;
+}
+
 export interface PixelCanvasCallbacks {
   onMoveRequest: (targetX: number) => void;
   onJumpRequest: () => void;
@@ -224,6 +233,7 @@ export interface PixelCanvasCallbacks {
   onEditFurniture?: (instanceId: string) => void;
   onInteractFurniture?: (furn: PlacedFurnitureItem) => void;
   onInteractWindow?: () => void;
+  onEditWorkStatus?: () => void;
   onHoverStateChange?: (hoverLabel: string | null) => void;
 }
 
@@ -232,6 +242,7 @@ export class PixelCanvasRenderer {
   public static readonly HEIGHT = 180;
   public static readonly FLOOR_HEIGHT = 24;
   public static readonly FLOOR_Y = PixelCanvasRenderer.HEIGHT - PixelCanvasRenderer.FLOOR_HEIGHT;
+  private static readonly WORK_SIGN_X = 140;
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -249,6 +260,7 @@ export class PixelCanvasRenderer {
 
   private physics = new Map<string, LocalAvatarPhysics>();
   private ambientThoughts = new Map<string, { text: string; expiresAt: number }>();
+  private focusOverlay: FocusCanvasOverlayState | null = null;
   private seenSpawnFx = new Set<string>();
   private projectiles: ActiveProjectile[] = [];
   private particles: Particle[] = [];
@@ -257,6 +269,7 @@ export class PixelCanvasRenderer {
   private hoveredPlayerId: string | null = null;
   private hoveredFurnitureId: string | null = null;
   private hoveredWindow = false;
+  private hoveredWorkSign = false;
   private draggingFurnitureId: string | null = null;
   private draggingStartMouseX = 0;
   private draggingDidMove = false;
@@ -282,6 +295,10 @@ export class PixelCanvasRenderer {
 
   public setIdentity(userId: string) {
     this.myUserId = userId;
+  }
+
+  public setFocusOverlay(state: FocusCanvasOverlayState | null) {
+    this.focusOverlay = state;
   }
 
   public showAmbientThought(userId: string, text: string, durationMs = 4500) {
@@ -589,7 +606,22 @@ export class PixelCanvasRenderer {
         }
       }
 
-      // 0.5. Check if clicking the room window to look outside
+      // 0.5. Check if clicking the Work Status Desk Sign (Plaquinha de Mesa)
+      if (this.hoveredWorkSign && !this.hoveredDropId && !this.hoveredPlayerId) {
+        soundEngine.playTone(560, 0.07, 'triangle', 0.07, 740);
+        if (isMyRoom) {
+          this.callbacks.onEditWorkStatus?.();
+        } else if (this.room?.hostWorkStatus) {
+          this.showAmbientThought(
+            this.room.hostUserId,
+            `🪧 ${this.room.hostWorkStatus}`,
+            4500
+          );
+        }
+        return;
+      }
+
+      // 0.6. Check if clicking the room window to look outside
       if (this.hoveredWindow && !this.hoveredDropId && !this.hoveredPlayerId) {
         soundEngine.playTone(540, 0.07, 'sine', 0.06);
         this.callbacks.onInteractWindow?.();
@@ -649,13 +681,35 @@ export class PixelCanvasRenderer {
     this.hoveredPlayerId = null;
     this.hoveredFurnitureId = null;
     this.hoveredWindow = false;
+    this.hoveredWorkSign = false;
     let label: string | null = null;
 
     if (this.room) {
       const isMyRoom = this.room.hostUserId === this.myUserId;
 
+      // Check Work Status Desk Sign hit-testing (Plaquinha na mesa)
+      const hasWorkStatus = Boolean(this.room.hostWorkStatus && this.room.hostWorkStatus.trim());
+      if (!this.editFurnitureMode && (hasWorkStatus || isMyRoom)) {
+        const signX = PixelCanvasRenderer.WORK_SIGN_X;
+        const signHalfW = hasWorkStatus
+          ? Math.min(68, Math.max(28, this.room.hostWorkStatus!.length * 2.6 + 14))
+          : 24;
+        if (
+          Math.abs(x - signX) <= signHalfW &&
+          y >= PixelCanvasRenderer.FLOOR_Y - 28 &&
+          y <= PixelCanvasRenderer.FLOOR_Y + 2
+        ) {
+          this.hoveredWorkSign = true;
+          label = isMyRoom
+            ? hasWorkStatus
+              ? `🪧 Plaquinha: "${this.room.hostWorkStatus}" — Clique para editar status`
+              : '🪧 Plaquinha de Mesa — Clique para definir "No que estou trabalhando"'
+            : `🪧 ${this.room.hostDisplayName}: "${this.room.hostWorkStatus}"`;
+        }
+      }
+
       // Check Furniture hit-testing (in both own room and friend's room!)
-      if (this.room.placedFurniture) {
+      if (!this.hoveredWorkSign && this.room.placedFurniture) {
         for (let i = this.room.placedFurniture.length - 1; i >= 0; i--) {
           const furn = this.room.placedFurniture[i];
           const item = getCosmeticById(furn.itemId);
@@ -683,7 +737,7 @@ export class PixelCanvasRenderer {
       }
 
       // Check Window hit-testing (for rooms with a dynamic day/night window)
-      if (!this.hoveredFurnitureId && !this.editFurnitureMode) {
+      if (!this.hoveredFurnitureId && !this.hoveredWorkSign && !this.editFurnitureMode) {
         const skinId = this.room.roomSkinId || 'room_cozy_desk';
         const isCozyWin =
           skinId === 'room_cozy_desk' && x >= 26 && x <= 106 && y >= 20 && y <= 104;
@@ -732,7 +786,12 @@ export class PixelCanvasRenderer {
 
     if (this.draggingFurnitureId || this.hoveredFurnitureId) {
       this.canvas.style.cursor = this.draggingDidMove ? 'grabbing' : 'pointer';
-    } else if (this.hoveredDropId || this.hoveredPlayerId || this.hoveredWindow) {
+    } else if (
+      this.hoveredDropId ||
+      this.hoveredPlayerId ||
+      this.hoveredWindow ||
+      this.hoveredWorkSign
+    ) {
       this.canvas.style.cursor = 'pointer';
     } else {
       this.canvas.style.cursor = 'crosshair';
@@ -747,6 +806,7 @@ export class PixelCanvasRenderer {
         Boolean(this.hoveredPlayerId) ||
         Boolean(this.hoveredFurnitureId) ||
         Boolean(this.hoveredWindow) ||
+        Boolean(this.hoveredWorkSign) ||
         Boolean(this.draggingFurnitureId);
       windowBridge.setClickThrough(!isOverInteractive);
     }
@@ -902,6 +962,9 @@ export class PixelCanvasRenderer {
       }
     }
 
+    // 2.5. Draw Work Status Desk Sign ("No que estou trabalhando") on the desk/floor
+    this.drawWorkStatusDeskSign(ctx, floorY);
+
     // Draw Desk Drops (AFK Gifts) on the floor
     for (const drop of this.room.deskDrops) {
       this.drawDeskDrop(ctx, drop, floorY);
@@ -947,6 +1010,106 @@ export class PixelCanvasRenderer {
       }
     }
 
+    ctx.restore();
+
+    // Screen-Space HUD (visível inclusive dentro do PiP Flutuante via captureStream)
+    if (this.focusOverlay && this.focusOverlay.active) {
+      this.drawFocusTimerHud(ctx, W, H);
+    }
+  }
+
+  /**
+   * Plaquinha de Mesa ("No que estou trabalhando") visível quando amigos visitam a sala
+   */
+  private drawWorkStatusDeskSign(ctx: CanvasRenderingContext2D, floorY: number) {
+    if (!this.room) return;
+    const isMyRoom = this.room.hostUserId === this.myUserId;
+    const rawStatus = (this.room.hostWorkStatus || '').trim();
+    if (!rawStatus && !isMyRoom) return;
+
+    const signX = PixelCanvasRenderer.WORK_SIGN_X;
+    const isHovered = this.hoveredWorkSign;
+
+    ctx.save();
+    ctx.font = 'bold 7.5px monospace';
+
+    const displayText = rawStatus ? `🪧 ${rawStatus}` : '🪧 + Status';
+    const textW = ctx.measureText(displayText).width;
+    const boardW = Math.min(138, Math.max(44, Math.round(textW + 12)));
+    const boardH = 14;
+    const boardTop = floorY - 21;
+    const leftX = Math.round(signX - boardW / 2);
+
+    // 1. Pedestal / Cavalete de madeira na mesa
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(signX - 10, floorY - 3, 20, 3);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(signX - 6, floorY - 8, 3, 6);
+    ctx.fillRect(signX + 3, floorY - 8, 3, 6);
+
+    // 2. Moldura de madeira da plaquinha
+    ctx.fillStyle = isHovered ? '#facc15' : rawStatus ? '#d97706' : '#78350f';
+    ctx.fillRect(leftX - 1, boardTop - 1, boardW + 2, boardH + 2);
+
+    // 3. Quadro interno escuro estilo lousa / placa de mesa
+    ctx.fillStyle = rawStatus ? 'rgba(15, 23, 42, 0.94)' : 'rgba(30, 41, 59, 0.82)';
+    ctx.fillRect(leftX, boardTop, boardW, boardH);
+
+    // Detalhe de pino dourado no topo da plaquinha
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(signX - 1, boardTop + 1, 2, 2);
+
+    // 4. Texto do status de trabalho
+    ctx.fillStyle = rawStatus ? '#fef08a' : '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.fillText(displayText, signX, boardTop + 10);
+
+    ctx.restore();
+  }
+
+  /**
+   * Contador discreto do Pomodoro / Timer de Foco no cantinho superior direito do Canvas
+   * (Funciona inclusive dentro da janela PiP Flutuante!)
+   */
+  private drawFocusTimerHud(ctx: CanvasRenderingContext2D, W: number, _H: number) {
+    if (!this.focusOverlay || !this.focusOverlay.active) return;
+
+    const { phase, remainingSec, totalSec, activity } = this.focusOverlay;
+    const mins = String(Math.floor(Math.max(0, remainingSec) / 60)).padStart(2, '0');
+    const secs = String(Math.floor(Math.max(0, remainingSec) % 60)).padStart(2, '0');
+    const icon = phase === 'FOCUS' ? (activity === 'READING' ? '📖' : '🍅') : '☕';
+    const phaseText = phase === 'FOCUS' ? 'FOCO' : 'PAUSA';
+    const label = `${icon} ${phaseText} ${mins}:${secs}`;
+
+    ctx.save();
+    ctx.font = 'bold 9px monospace';
+    const textW = ctx.measureText(label).width;
+    const boxW = Math.round(textW + 14);
+    const boxH = 18;
+    const boxX = W - boxW - 6;
+    const boxY = 6;
+
+    // Fundo translúcido escuro
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+
+    // Borda temática (âmbar/vermelho suave para Foco, verde menta para Pausa)
+    const accentColor = phase === 'FOCUS' ? '#fb923c' : '#4ade80';
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+    // Barrinha de progresso discreta na base do badge
+    const ratio = totalSec > 0 ? Math.max(0, Math.min(1, 1 - remainingSec / totalSec)) : 0;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(boxX + 2, boxY + boxH - 3, boxW - 4, 2);
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(boxX + 2, boxY + boxH - 3, Math.round((boxW - 4) * ratio), 2);
+
+    // Texto do timer
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, boxX + boxW / 2, boxY + 11.5);
     ctx.restore();
   }
 

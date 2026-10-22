@@ -1377,6 +1377,7 @@ export class PocketStore {
         targetX: 110,
         facing: 'right',
         hostStatus: hostUser.hostStatus,
+        workStatus: hostUser.workStatus || '',
         idleActivity: activities[Math.floor(Math.random() * activities.length)],
         equipped: this.getVerifiedEquipped(hostUser.id),
         isBot: hostUser.id === BOT_USER_ID,
@@ -1438,6 +1439,10 @@ export class PocketStore {
 
     const now = Date.now();
     for (const p of room.players.values()) {
+      const uRef = this.db.users[p.userId];
+      if (uRef) {
+        p.workStatus = uRef.workStatus || '';
+      }
       if (p.chatBubble && p.chatBubble.expiresAt <= now) {
         p.chatBubble = undefined;
       }
@@ -1472,6 +1477,7 @@ export class PocketStore {
       hostUsername: hostUser?.username || 'host',
       hostDisplayName: hostUser?.displayName || 'Host',
       hostStatus: hostUser?.hostStatus || 'IDLE',
+      hostWorkStatus: hostUser?.workStatus || '',
       doorPermission: hostUser?.doorPermission || 'OPEN',
       roomSkinId: verifiedHostEquip.room_skin,
       placedFurniture: hostUser?.placedFurniture || [],
@@ -1497,6 +1503,7 @@ export class PocketStore {
         username: u.username,
         displayName: u.displayName,
         hostStatus: u.hostStatus,
+        workStatus: u.workStatus || '',
         doorPermission: u.doorPermission,
         visitorCount,
         maxVisitors: 4,

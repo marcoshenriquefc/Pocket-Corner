@@ -128,6 +128,7 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
     targetX: spawnX,
     facing: spawnX > 180 ? 'left' : 'right',
     hostStatus: user.hostStatus,
+    workStatus: user.workStatus || '',
     idleActivity: 'COFFEE',
     equipped: verifiedEquip,
     spawnFx: triggerSpawnFx
@@ -1193,6 +1194,39 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     broadcastDirectory();
   });
 
+  socket.on('host:set_work_status', ({ workStatus }) => {
+    const u = store.getUserById(userId);
+    if (!u) return;
+
+    const cleanStatus = sanitizeChatText(workStatus || '').slice(0, 38);
+    u.workStatus = cleanStatus;
+    store.saveDB();
+
+    const myRoom = store.ensureRoom(userId);
+    const myPlayer = myRoom.players.get(userId);
+    if (myPlayer) {
+      myPlayer.workStatus = cleanStatus;
+    }
+
+    const currentHostId = store.userCurrentRoom.get(userId) || userId;
+    const currentRoom = store.rooms.get(currentHostId);
+    const inCurrent = currentRoom?.players.get(userId);
+    if (inCurrent) {
+      inCurrent.workStatus = cleanStatus;
+    }
+
+    socket.emit('auth:profile', u);
+    socket.emit('system:toast', {
+      type: 'success',
+      message: cleanStatus
+        ? `🪧 Status na mesa atualizado: "${cleanStatus}"`
+        : '🪧 Plaquinha de status removida da mesa.',
+    });
+    broadcastRoomState(userId);
+    if (currentHostId !== userId) broadcastRoomState(currentHostId);
+    broadcastDirectory();
+  });
+
   // ------------------------------------------
   // 2. Mover avatar no eixo X
   // 6.4. Rate Limiting: Máximo 10 pacotes/seg; targetX < 0 ou > 360 são descartados!
@@ -1551,6 +1585,47 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       message:
         '🪙 Você ganha 1 Moeda automaticamente a cada 5 minutos online! Pip Diamantes 💎 são adquiridos na Loja.',
     });
+  });
+
+  socket.on('economy:claim_focus_reward', ({ focusMinutes }) => {
+    // Limite de segurança no servidor: máx 1 recompensa de ciclo de foco a cada 15 minutos
+    const rl = store.consumeRateLimitToken(userId, 'economy:claim_focus_reward', 1, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return;
+    }
+
+    const u = store.getUserById(userId);
+    if (!u) return;
+
+    const mins = Number(focusMinutes) >= 45 ? 50 : 25;
+    const bonusCoins = mins >= 50 ? 10 : 5;
+    u.coins += bonusCoins;
+    u.hostStatus = 'IDLE';
+
+    const myRoom = store.ensureRoom(userId);
+    const myPlayer = myRoom.players.get(userId);
+    if (myPlayer) {
+      myPlayer.hostStatus = 'IDLE';
+      myPlayer.idleActivity = 'COFFEE';
+    }
+
+    const currentHostId = store.userCurrentRoom.get(userId) || userId;
+    const currentRoom = store.rooms.get(currentHostId);
+    const inCurrent = currentRoom?.players.get(userId);
+    if (inCurrent) {
+      inCurrent.hostStatus = 'IDLE';
+      inCurrent.idleActivity = 'COFFEE';
+    }
+
+    store.saveDB();
+    socket.emit('auth:profile', u);
+    socket.emit('system:toast', {
+      type: 'success',
+      message: `🍅 Ciclo de Foco (${mins} min) concluído! Hora do café ☕ (+${bonusCoins} 🪙)`,
+    });
+    broadcastRoomState(userId);
+    if (currentHostId !== userId) broadcastRoomState(currentHostId);
+    broadcastDirectory();
   });
 
   // ------------------------------------------

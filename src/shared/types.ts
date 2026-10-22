@@ -138,6 +138,7 @@ export interface UserProfile {
   pendingIncomingFriends?: string[];
   pendingOutgoingFriends?: string[];
   hostStatus: HostStatus;
+  workStatus?: string; // Frase curta de status de trabalho (ex.: "Editando vídeo", "Em reunião até 15h")
   doorPermission: DoorPermission;
   createdAt: number;
 }
@@ -151,6 +152,7 @@ export interface RoomPlayerState {
   targetX: number;
   facing: 'left' | 'right';
   hostStatus: HostStatus;
+  workStatus?: string;
   idleActivity: IdleActivity;
   equipped: EquippedLoadout; // Populated ONLY by the server from verified DB inventory
   spawnFx?: {
@@ -197,6 +199,7 @@ export interface RoomSnapshot {
   hostUsername: string;
   hostDisplayName: string;
   hostStatus: HostStatus;
+  hostWorkStatus?: string;
   doorPermission: DoorPermission;
   roomSkinId: string; // Verified from host's equipped.room_skin
   placedFurniture: PlacedFurnitureItem[]; // Móveis posicionados pelo Host
@@ -211,6 +214,7 @@ export interface OnlineDirectoryEntry {
   username: string;
   displayName: string;
   hostStatus: HostStatus;
+  workStatus?: string;
   doorPermission: DoorPermission;
   visitorCount: number;
   maxVisitors: number;
@@ -255,6 +259,7 @@ export interface ClientToServerEvents {
 
   // Configurações da sala/estado do Host
   'host:set_status': (payload: { status: HostStatus; idleActivity?: IdleActivity }) => void;
+  'host:set_work_status': (payload: { workStatus: string }) => void;
   'host:set_door': (payload: { doorPermission: DoorPermission }) => void;
 
   // 2. Mover avatar no eixo X (Throttled: máx 10 envios/seg, 0 <= targetX <= 360)
@@ -289,6 +294,7 @@ export interface ClientToServerEvents {
   'shop:buy': (payload: { itemId: string }) => void;
   'shop:gachapon': () => void;
   'economy:claim_starter_pack': () => void;
+  'economy:claim_focus_reward': (payload: { focusMinutes: number }) => void;
 
   // Perfil (Alterar Nickname na Sala mantendo vínculo com a conta Google)
   'profile:update_nickname': (payload: { displayName: string }) => void;
