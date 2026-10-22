@@ -17,6 +17,7 @@ import {
   KnockRequest,
   OnlineDirectoryEntry,
   PaymentTransactionRecord,
+  PlacedFurnitureItem,
   RealMoneyPackage,
   RoomSnapshot,
   ServerToClientEvents,
@@ -25,7 +26,11 @@ import {
 } from './shared/types';
 import { soundEngine } from './audio/soundEngine';
 import { getApiBaseUrl, windowBridge } from './bridge/windowBridge';
-import { PixelCanvasRenderer } from './renderer/PixelCanvas';
+import {
+  PixelCanvasRenderer,
+  getFurnitureInteraction,
+  getLocalDayTimeInfo,
+} from './renderer/PixelCanvas';
 
 type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE' | 'ADMIN' | 'FURN_EDIT';
 type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
@@ -150,6 +155,10 @@ class PocketCornerApp {
   private selectedTargetUserId: string | null = null;
   private editingFurnitureInstanceId: string | null = null;
   private manualActionSelected = false;
+  private isInFurnitureOrWanderActivity = false;
+  private lastManualInputAt = Date.now();
+  private nextAutonomousWanderAt = Date.now() + 20_000;
+  private wanderArrivalTimer: number | null = null;
   private autoIdleOnBlur = true;
   private previewAnimId = 0;
   private pendingVisitParam: string | null = null;
@@ -514,38 +523,52 @@ class PocketCornerApp {
     const canvas = document.getElementById('pocket-canvas') as HTMLCanvasElement;
     this.renderer = new PixelCanvasRenderer(canvas, {
       onMoveRequest: (targetX) => {
+        this.recordManualInput();
         this.socket.emit('player:move', { targetX });
       },
       onJumpRequest: () => {
+        this.recordManualInput();
         this.socket.emit('player:jump');
       },
       onSelectPlayer: (userId) => {
         this.selectedTargetUserId = userId;
       },
       onPokePlayer: (userId) => {
+        this.recordManualInput();
         this.socket.emit('player:interact', {
           targetUserId: userId,
           actionType: 'POKE',
         });
       },
       onClaimDrop: (dropId) => {
+        this.recordManualInput();
         this.socket.emit('desk_drop:claim', { dropId });
       },
       onKickVisitor: (userId) => {
         this.socket.emit('room:kick_visitor', { targetUserId: userId });
       },
       onMoveFurniture: (instanceId, x) => {
+        this.recordManualInput();
         this.socket.emit('furniture:move', { instanceId, x });
       },
       onFlipFurniture: (instanceId) => {
+        this.recordManualInput();
         this.socket.emit('furniture:flip', { instanceId });
       },
       onRemoveFurniture: (instanceId) => {
+        this.recordManualInput();
         this.socket.emit('furniture:remove', { instanceId });
       },
       onEditFurniture: (instanceId) => {
+        this.recordManualInput();
         this.editingFurnitureInstanceId = instanceId;
         this.openModal('FURN_EDIT');
+      },
+      onInteractFurniture: (furn) => {
+        this.interactWithFurniture(furn);
+      },
+      onInteractWindow: () => {
+        this.interactWithWindow();
       },
       onHoverStateChange: (label) => {
         if (label) {
@@ -561,6 +584,7 @@ class PocketCornerApp {
     const sendChat = () => {
       const text = chatInput.value.trim().slice(0, 80);
       if (!text) return;
+      this.recordManualInput();
       this.socket.emit('player:chat', { text });
       chatInput.value = '';
     };
@@ -574,15 +598,19 @@ class PocketCornerApp {
 
     document.querySelectorAll('[data-pip-action]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        this.recordManualInput();
         const act = (btn as HTMLElement).dataset.pipAction!;
         if (act === 'ACTIVE') {
           this.manualActionSelected = false;
+          this.isInFurnitureOrWanderActivity = false;
           this.socket.emit('host:set_status', { status: 'ACTIVE' });
         } else if (act === 'DND') {
           this.manualActionSelected = false;
+          this.isInFurnitureOrWanderActivity = false;
           this.socket.emit('host:set_status', { status: 'DND' });
         } else {
           this.manualActionSelected = true;
+          this.isInFurnitureOrWanderActivity = false;
           this.socket.emit('host:set_status', {
             status: 'IDLE',
             idleActivity: act as IdleActivity,
@@ -849,6 +877,204 @@ class PocketCornerApp {
     });
   }
 
+  private recordManualInput() {
+    this.lastManualInputAt = Date.now();
+    this.nextAutonomousWanderAt =
+      Date.now() + 20_000 + Math.floor(Math.random() * 12_000);
+    if (this.wanderArrivalTimer) {
+      window.clearTimeout(this.wanderArrivalTimer);
+      this.wanderArrivalTimer = null;
+    }
+  }
+
+  private interactWithFurniture(furn: PlacedFurnitureItem) {
+    const inter = getFurnitureInteraction(furn.itemId);
+    this.walkToPointOfInterest(furn.x, inter.activity, inter.thoughtBubble, true);
+  }
+
+  private interactWithWindow() {
+    const dayInfo = getLocalDayTimeInfo();
+    const skinId = this.room?.roomSkinId || 'room_cozy_desk';
+    const winX = skinId === 'room_office' ? 75 : 66;
+    this.walkToPointOfInterest(winX, 'COFFEE', dayInfo.windowThought, true);
+  }
+
+  private walkToPointOfInterest(
+    targetX: number,
+    activity: IdleActivity,
+    thoughtBubble: string,
+    isManualClick = false
+  ) {
+    if (!this.room || !this.profile) return;
+    const me = this.room.players.find((p) => p.userId === this.profile?.id);
+    if (!me) return;
+
+    if (isManualClick) {
+      this.lastManualInputAt = Date.now();
+      this.nextAutonomousWanderAt =
+        Date.now() + 24_000 + Math.floor(Math.random() * 14_000);
+    }
+
+    if (this.wanderArrivalTimer) {
+      window.clearTimeout(this.wanderArrivalTimer);
+      this.wanderArrivalTimer = null;
+    }
+
+    const clampedX = Math.max(26, Math.min(334, Math.round(targetX)));
+    const dist = Math.abs(clampedX - me.x);
+    if (dist >= 2) {
+      me.facing = clampedX < me.x ? 'left' : 'right';
+      me.targetX = clampedX;
+      me.x = clampedX;
+      this.socket.emit('player:move', { targetX: clampedX });
+    }
+
+    const travelMs = Math.min(2200, Math.max(240, Math.round(dist * 7.5)));
+    this.wanderArrivalTimer = window.setTimeout(() => {
+      this.wanderArrivalTimer = null;
+      if (!this.profile || this.profile.hostStatus === 'DND') return;
+
+      this.isInFurnitureOrWanderActivity = true;
+      // Se o usuário clicou manualmente no móvel/janela OU não travou uma ação manual fixa, troca a ação do Pip automaticamente!
+      if (isManualClick || !this.manualActionSelected) {
+        if (isManualClick) {
+          this.manualActionSelected = false;
+        }
+        this.socket.emit('host:set_status', {
+          status: 'IDLE',
+          idleActivity: activity,
+        });
+      }
+      this.renderer.showAmbientThought(this.profile.id, thoughtBubble, 4800);
+    }, travelMs);
+  }
+
+  private triggerAutonomousWanderIfIdle() {
+    const now = Date.now();
+    if (now < this.nextAutonomousWanderAt) return;
+    if (now - this.lastManualInputAt < 18_000) return;
+
+    // Agenda o próximo passeio autônomo entre 20s e 36s
+    this.nextAutonomousWanderAt = now + 20_000 + Math.floor(Math.random() * 16_000);
+
+    if (!this.room || !this.profile) return;
+    if (this.profile.hostStatus === 'DND') return;
+    if (this.activeModal === 'FURN_EDIT') return;
+
+    const me = this.room.players.find((p) => p.userId === this.profile?.id);
+    if (!me) return;
+
+    interface CandidatePoi {
+      x: number;
+      activity: IdleActivity;
+      thought: string;
+      weight: number;
+    }
+
+    const candidates: CandidatePoi[] = [];
+    const dayInfo = getLocalDayTimeInfo();
+    const skinId = this.room.roomSkinId || 'room_cozy_desk';
+
+    // 1. Móveis posicionados na sala atual (maior prioridade para o Pip usar a mobília!)
+    if (this.room.placedFurniture && this.room.placedFurniture.length > 0) {
+      for (const furn of this.room.placedFurniture) {
+        const inter = getFurnitureInteraction(furn.itemId);
+        candidates.push({
+          x: furn.x,
+          activity: inter.activity,
+          thought: inter.thoughtBubble,
+          weight: 4,
+        });
+      }
+    }
+
+    // 2. Pontos de interesse nativos do cenário (Janela com ciclo dia/noite, estante, planta, etc.)
+    if (skinId === 'room_cozy_desk') {
+      candidates.push(
+        {
+          x: 66,
+          activity: 'COFFEE',
+          thought: dayInfo.windowThought,
+          weight: 3,
+        },
+        {
+          x: 158,
+          activity: 'COFFEE',
+          thought: '🌿 Dando uma olhadinha na planta do quarto...',
+          weight: 2,
+        },
+        {
+          x: 280,
+          activity: 'READING',
+          thought: '📖 Folheando um livro na estante...',
+          weight: 2,
+        }
+      );
+    } else if (skinId === 'room_office') {
+      candidates.push(
+        {
+          x: 75,
+          activity: 'COFFEE',
+          thought: dayInfo.windowThought,
+          weight: 3,
+        },
+        {
+          x: 245,
+          activity: 'TYPING',
+          thought: '📊 Revisando o quadro de metas...',
+          weight: 2,
+        },
+        {
+          x: 315,
+          activity: 'COFFEE',
+          thought: '💧 Pausa para beber água fresca!',
+          weight: 2,
+        }
+      );
+    } else if (skinId === 'room_forest_campfire') {
+      candidates.push({
+        x: 172,
+        activity: 'COFFEE',
+        thought: '🔥 Aquecendo perto da fogueira...',
+        weight: 3,
+      });
+    } else if (skinId === 'room_underwater') {
+      candidates.push({
+        x: 190,
+        activity: 'FISHING',
+        thought: '🐠 Observando os peixes no recife...',
+        weight: 3,
+      });
+    }
+
+    // 3. Passeio livre (dar alguns passinhos pela sala para esticar as pernas)
+    const strollDelta = (Math.random() > 0.5 ? 1 : -1) * (42 + Math.floor(Math.random() * 55));
+    const strollX = Math.max(32, Math.min(328, me.x + strollDelta));
+    candidates.push({
+      x: strollX,
+      activity: me.idleActivity || 'COFFEE',
+      thought: '🐾 Dando uns passinhos pelo cantinho...',
+      weight: 2,
+    });
+
+    // Filtra pontos muito próximos de onde o Pip já está parado
+    const distantCandidates = candidates.filter((c) => Math.abs(c.x - me.x) >= 18);
+    const pool = distantCandidates.length > 0 ? distantCandidates : candidates;
+
+    const totalWeight = pool.reduce((acc, c) => acc + c.weight, 0);
+    let pick = Math.random() * totalWeight;
+    let chosen = pool[0];
+    for (const c of pool) {
+      pick -= c.weight;
+      if (pick <= 0) {
+        chosen = c;
+        break;
+      }
+    }
+
+    this.walkToPointOfInterest(chosen.x, chosen.activity, chosen.thought, false);
+  }
+
   private setupKeyboardAndFocusListeners() {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.activeModal !== 'NONE') {
@@ -863,31 +1089,48 @@ class PocketCornerApp {
       if (!me) return;
 
       if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+        this.recordManualInput();
         const nextX = Math.max(24, me.targetX - 28);
         me.targetX = nextX;
         me.facing = 'left';
         this.socket.emit('player:move', { targetX: nextX });
       } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+        this.recordManualInput();
         const nextX = Math.min(336, me.targetX + 28);
         me.targetX = nextX;
         me.facing = 'right';
         this.socket.emit('player:move', { targetX: nextX });
       } else if (e.key === ' ' || e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') {
         e.preventDefault();
+        this.recordManualInput();
         this.renderer.triggerJump(this.profile.id);
         this.socket.emit('player:jump');
       }
     });
 
     window.addEventListener('blur', () => {
-      if (!this.autoIdleOnBlur || !this.profile || this.manualActionSelected) return;
+      if (
+        !this.autoIdleOnBlur ||
+        !this.profile ||
+        this.manualActionSelected ||
+        this.isInFurnitureOrWanderActivity
+      ) {
+        return;
+      }
       if (this.profile.hostStatus === 'ACTIVE') {
         this.socket.emit('host:set_status', { status: 'IDLE' });
       }
     });
 
     window.addEventListener('focus', () => {
-      if (!this.autoIdleOnBlur || !this.profile || this.manualActionSelected) return;
+      if (
+        !this.autoIdleOnBlur ||
+        !this.profile ||
+        this.manualActionSelected ||
+        this.isInFurnitureOrWanderActivity
+      ) {
+        return;
+      }
       if (this.profile.hostStatus === 'IDLE') {
         this.socket.emit('host:set_status', { status: 'ACTIVE' });
       }
@@ -897,6 +1140,7 @@ class PocketCornerApp {
       if (this.room && this.room.pendingKnocks.length > 0) {
         this.renderKnockBanner();
       }
+      this.triggerAutonomousWanderIfIdle();
     }, 1000);
   }
 

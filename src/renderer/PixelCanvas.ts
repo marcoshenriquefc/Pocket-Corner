@@ -1,6 +1,7 @@
 import { getCosmeticById, getFurnitureColorOption } from '../shared/catalog';
 import {
   DeskDropInstance,
+  IdleActivity,
   InteractionActionType,
   PlacedFurnitureItem,
   RoomPlayerState,
@@ -8,6 +9,180 @@ import {
 } from '../shared/types';
 import { soundEngine } from '../audio/soundEngine';
 import { windowBridge } from '../bridge/windowBridge';
+
+export type DayCyclePhase = 'DAWN' | 'DAY' | 'SUNSET' | 'NIGHT';
+
+export interface LocalDayTimeInfo {
+  hours: number;
+  minutes: number;
+  decimalHour: number;
+  timeStr: string;
+  phase: DayCyclePhase;
+  label: string;
+  icon: string;
+  windowThought: string;
+}
+
+export function getLocalDayTimeInfo(): LocalDayTimeInfo {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const decimalHour = hours + minutes / 60;
+  const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+  if (decimalHour >= 5 && decimalHour < 7.5) {
+    return {
+      hours,
+      minutes,
+      decimalHour,
+      timeStr,
+      phase: 'DAWN',
+      label: 'Amanhecer',
+      icon: '🌅',
+      windowThought: '🌅 Olhando o sol nascer na janela com um café...',
+    };
+  }
+  if (decimalHour >= 7.5 && decimalHour < 16.5) {
+    return {
+      hours,
+      minutes,
+      decimalHour,
+      timeStr,
+      phase: 'DAY',
+      label: hours < 12 ? 'Manhã Clara' : 'Tarde Ensolarada',
+      icon: '☀️',
+      windowThought:
+        hours < 12
+          ? '☀️ Que manhã clara bonita lá fora!'
+          : '🌤️ Aproveitando a luz da tarde na janela...',
+    };
+  }
+  if (decimalHour >= 16.5 && decimalHour < 18.75) {
+    return {
+      hours,
+      minutes,
+      decimalHour,
+      timeStr,
+      phase: 'SUNSET',
+      label: 'Pôr do Sol',
+      icon: '🌇',
+      windowThought: '🌇 Admirando o pôr do sol alaranjado...',
+    };
+  }
+  return {
+    hours,
+    minutes,
+    decimalHour,
+    timeStr,
+    phase: 'NIGHT',
+    label: 'Noite Estrelada',
+    icon: '🌙',
+    windowThought: '🌙 Olhando as estrelas e a lua pela janela...',
+  };
+}
+
+export interface FurnitureInteractionMeta {
+  activity: IdleActivity;
+  label: string;
+  thoughtBubble: string;
+  seatOffsetY?: number;
+}
+
+export const FURNITURE_INTERACTIONS: Record<string, FurnitureInteractionMeta> = {
+  furn_coffee_machine: {
+    activity: 'COFFEE',
+    label: 'Passar um Café',
+    thoughtBubble: '☕ Passando um expresso fresquinho...',
+  },
+  furn_mini_fridge: {
+    activity: 'COFFEE',
+    label: 'Pegar Bebida',
+    thoughtBubble: '🧊 Pegando uma bebida gelada no frigobar...',
+  },
+  furn_dining_table: {
+    activity: 'COFFEE',
+    label: 'Pausa pro Café',
+    thoughtBubble: '🍽️ Fazendo uma pausa para o café na mesa...',
+  },
+  furn_pet_bed: {
+    activity: 'SLEEPING',
+    label: 'Cochilar na Caminha',
+    thoughtBubble: '💤 Tirando um cochilo gostoso na caminha...',
+    seatOffsetY: -5,
+  },
+  furn_cozy_sofa: {
+    activity: 'SLEEPING',
+    label: 'Descansar no Sofá',
+    thoughtBubble: '🛋️ Relaxando um pouquinho no sofá...',
+    seatOffsetY: -6,
+  },
+  furn_bookshelf: {
+    activity: 'READING',
+    label: 'Ler um Livro',
+    thoughtBubble: '📚 Escolhendo um livro interessante na estante...',
+  },
+  furn_floor_lamp: {
+    activity: 'READING',
+    label: 'Ler sob a Luz',
+    thoughtBubble: '💡 Lendo sob a luz aconchegante da luminária...',
+  },
+  furn_cozy_rug: {
+    activity: 'READING',
+    label: 'Sentar no Tapete',
+    thoughtBubble: '🧶 Lendo confortável no tapete felpudo...',
+  },
+  furn_gamer_setup: {
+    activity: 'TYPING',
+    label: 'Usar o PC Gamer',
+    thoughtBubble: '🖥️ Focado no código e no trabalho!',
+  },
+  furn_gamer_chair: {
+    activity: 'TYPING',
+    label: 'Sentar na Cadeira',
+    thoughtBubble: '🪑 Trabalhando confortável na cadeira gamer!',
+    seatOffsetY: -5,
+  },
+  furn_arcade_cabinet: {
+    activity: 'TYPING',
+    label: 'Jogar Fliperama',
+    thoughtBubble: '🕹️ Jogando uma fichinha rápida no Arcade!',
+  },
+  furn_dj_booth: {
+    activity: 'TYPING',
+    label: 'Mixar na Mesa DJ',
+    thoughtBubble: '🎧 Soltando o beat na Mesa de DJ!',
+  },
+  furn_aquarium: {
+    activity: 'FISHING',
+    label: 'Observar Peixinhos',
+    thoughtBubble: '🐠 Observando os peixinhos no aquário...',
+  },
+  furn_sakura_bonsai: {
+    activity: 'COFFEE',
+    label: 'Admirar Bonsai',
+    thoughtBubble: '🌸 Admirando as pétalas do Bonsai de Sakura...',
+  },
+  furn_monstera_plant: {
+    activity: 'COFFEE',
+    label: 'Cuidar da Planta',
+    thoughtBubble: '🪴 Cuidando da Costela-de-Adão...',
+  },
+  furn_wall_frames: {
+    activity: 'COFFEE',
+    label: 'Admirar Quadros',
+    thoughtBubble: '🖼️ Olhando a galeria de quadros na parede...',
+  },
+};
+
+export function getFurnitureInteraction(itemId: string): FurnitureInteractionMeta {
+  return (
+    FURNITURE_INTERACTIONS[itemId] || {
+      activity: 'COFFEE',
+      label: 'Interagir com Móvel',
+      thoughtBubble: '✨ Que cantinho aconchegante!',
+    }
+  );
+}
 
 interface LocalAvatarPhysics {
   renderX: number;
@@ -47,6 +222,8 @@ export interface PixelCanvasCallbacks {
   onFlipFurniture?: (instanceId: string) => void;
   onRemoveFurniture?: (instanceId: string) => void;
   onEditFurniture?: (instanceId: string) => void;
+  onInteractFurniture?: (furn: PlacedFurnitureItem) => void;
+  onInteractWindow?: () => void;
   onHoverStateChange?: (hoverLabel: string | null) => void;
 }
 
@@ -71,6 +248,7 @@ export class PixelCanvasRenderer {
   private cameraX = 180;
 
   private physics = new Map<string, LocalAvatarPhysics>();
+  private ambientThoughts = new Map<string, { text: string; expiresAt: number }>();
   private seenSpawnFx = new Set<string>();
   private projectiles: ActiveProjectile[] = [];
   private particles: Particle[] = [];
@@ -78,7 +256,11 @@ export class PixelCanvasRenderer {
   private hoveredDropId: string | null = null;
   private hoveredPlayerId: string | null = null;
   private hoveredFurnitureId: string | null = null;
+  private hoveredWindow = false;
   private draggingFurnitureId: string | null = null;
+  private draggingStartMouseX = 0;
+  private draggingDidMove = false;
+  private singleClickFurnTimer: number | null = null;
   private lastFurnitureEmitAt = 0;
   private lastMoveEmitAt = 0;
   private animFrameId = 0;
@@ -100,6 +282,13 @@ export class PixelCanvasRenderer {
 
   public setIdentity(userId: string) {
     this.myUserId = userId;
+  }
+
+  public showAmbientThought(userId: string, text: string, durationMs = 4500) {
+    this.ambientThoughts.set(userId, {
+      text,
+      expiresAt: Date.now() + durationMs,
+    });
   }
 
   public setSelectedTarget(userId: string | null) {
@@ -281,12 +470,17 @@ export class PixelCanvasRenderer {
           (f) => f.instanceId === this.draggingFurnitureId
         );
         if (furn) {
-          const clampedX = Math.max(26, Math.min(334, Math.round(x)));
-          furn.x = clampedX;
-          const now = Date.now();
-          if (now - this.lastFurnitureEmitAt >= 70) {
-            this.lastFurnitureEmitAt = now;
-            this.callbacks.onMoveFurniture?.(furn.instanceId, clampedX);
+          if (Math.abs(x - this.draggingStartMouseX) >= 3) {
+            this.draggingDidMove = true;
+          }
+          if (this.draggingDidMove) {
+            const clampedX = Math.max(26, Math.min(334, Math.round(x)));
+            furn.x = clampedX;
+            const now = Date.now();
+            if (now - this.lastFurnitureEmitAt >= 70) {
+              this.lastFurnitureEmitAt = now;
+              this.callbacks.onMoveFurniture?.(furn.instanceId, clampedX);
+            }
           }
           return;
         }
@@ -300,14 +494,33 @@ export class PixelCanvasRenderer {
         const furn = this.room.placedFurniture.find(
           (f) => f.instanceId === this.draggingFurnitureId
         );
-        if (furn) {
-          this.callbacks.onMoveFurniture?.(furn.instanceId, furn.x);
-        }
+        const didMove = this.draggingDidMove;
         this.draggingFurnitureId = null;
+        this.draggingDidMove = false;
+
+        if (furn) {
+          if (didMove) {
+            this.callbacks.onMoveFurniture?.(furn.instanceId, furn.x);
+          } else if (!this.editFurnitureMode) {
+            // Single click without dragging -> interact with furniture (delayed slightly so dblclick can cancel it)
+            if (this.singleClickFurnTimer) {
+              window.clearTimeout(this.singleClickFurnTimer);
+            }
+            const targetFurn = { ...furn };
+            this.singleClickFurnTimer = window.setTimeout(() => {
+              this.singleClickFurnTimer = null;
+              this.callbacks.onInteractFurniture?.(targetFurn);
+            }, 210);
+          }
+        }
       }
     });
 
     this.canvas.addEventListener('dblclick', (e) => {
+      if (this.singleClickFurnTimer) {
+        window.clearTimeout(this.singleClickFurnTimer);
+        this.singleClickFurnTimer = null;
+      }
       const isMyRoom = this.room?.hostUserId === this.myUserId;
       if (!isMyRoom) return;
       const { x, y } = this.getCanvasCoords(e);
@@ -315,6 +528,7 @@ export class PixelCanvasRenderer {
       if (this.hoveredFurnitureId) {
         e.preventDefault();
         this.draggingFurnitureId = null;
+        this.draggingDidMove = false;
         soundEngine.playTone(580, 0.08, 'triangle', 0.08, 780);
         this.callbacks.onEditFurniture?.(this.hoveredFurnitureId);
       }
@@ -350,15 +564,35 @@ export class PixelCanvasRenderer {
       if (e.button !== 0) return;
       const { x, y } = this.getCanvasCoords(e);
 
-      // 0. If hovering a furniture item in our own room (and either in edit mode or not clicking a drop/other player), start dragging it!
+      // 0. If hovering a furniture item:
       const isMyRoom = this.room?.hostUserId === this.myUserId;
       if (
-        isMyRoom &&
         this.hoveredFurnitureId &&
         (this.editFurnitureMode || (!this.hoveredDropId && !this.hoveredPlayerId))
       ) {
-        this.draggingFurnitureId = this.hoveredFurnitureId;
-        soundEngine.playTone(520, 0.06, 'sine', 0.06);
+        if (isMyRoom) {
+          this.draggingFurnitureId = this.hoveredFurnitureId;
+          this.draggingStartMouseX = x;
+          this.draggingDidMove = false;
+          soundEngine.playTone(520, 0.06, 'sine', 0.06);
+          return;
+        } else {
+          // Visiting a friend's room: clicking furniture walks over and interacts with it!
+          const furn = this.room?.placedFurniture?.find(
+            (f) => f.instanceId === this.hoveredFurnitureId
+          );
+          if (furn) {
+            soundEngine.playTone(520, 0.06, 'sine', 0.06);
+            this.callbacks.onInteractFurniture?.(furn);
+            return;
+          }
+        }
+      }
+
+      // 0.5. Check if clicking the room window to look outside
+      if (this.hoveredWindow && !this.hoveredDropId && !this.hoveredPlayerId) {
+        soundEngine.playTone(540, 0.07, 'sine', 0.06);
+        this.callbacks.onInteractWindow?.();
         return;
       }
 
@@ -414,13 +648,14 @@ export class PixelCanvasRenderer {
     this.hoveredDropId = null;
     this.hoveredPlayerId = null;
     this.hoveredFurnitureId = null;
+    this.hoveredWindow = false;
     let label: string | null = null;
 
     if (this.room) {
       const isMyRoom = this.room.hostUserId === this.myUserId;
 
-      // Check Furniture hit-testing
-      if (isMyRoom && this.room.placedFurniture) {
+      // Check Furniture hit-testing (in both own room and friend's room!)
+      if (this.room.placedFurniture) {
         for (let i = this.room.placedFurniture.length - 1; i >= 0; i--) {
           const furn = this.room.placedFurniture[i];
           const item = getCosmeticById(furn.itemId);
@@ -438,9 +673,26 @@ export class PixelCanvasRenderer {
 
           if (Math.abs(x - furn.x) <= halfW && y >= minY && y <= maxY) {
             this.hoveredFurnitureId = furn.instanceId;
-            label = `🖐️ Arraste "${item?.name || 'Móvel'}" • 2x Clique: 🎨 Cor • Botão Direito: 🗑️ Guardar`;
+            const inter = getFurnitureInteraction(furn.itemId);
+            label = isMyRoom
+              ? `✨ 1x Clique: ${inter.label} • 🖐️ Arraste "${item?.name || 'Móvel'}" • 2x Clique: 🎨 Cor`
+              : `✨ Clique para ${inter.label} em "${item?.name || 'Móvel'}"`;
             break;
           }
+        }
+      }
+
+      // Check Window hit-testing (for rooms with a dynamic day/night window)
+      if (!this.hoveredFurnitureId && !this.editFurnitureMode) {
+        const skinId = this.room.roomSkinId || 'room_cozy_desk';
+        const isCozyWin =
+          skinId === 'room_cozy_desk' && x >= 26 && x <= 106 && y >= 20 && y <= 104;
+        const isOfficeWin =
+          skinId === 'room_office' && x >= 18 && x <= 132 && y >= 18 && y <= 104;
+        if (isCozyWin || isOfficeWin) {
+          this.hoveredWindow = true;
+          const dayInfo = getLocalDayTimeInfo();
+          label = `${dayInfo.icon} Janela (${dayInfo.timeStr} • ${dayInfo.label}) — Clique para olhar a vista`;
         }
       }
 
@@ -479,8 +731,8 @@ export class PixelCanvasRenderer {
     }
 
     if (this.draggingFurnitureId || this.hoveredFurnitureId) {
-      this.canvas.style.cursor = this.draggingFurnitureId ? 'grabbing' : 'grab';
-    } else if (this.hoveredDropId || this.hoveredPlayerId) {
+      this.canvas.style.cursor = this.draggingDidMove ? 'grabbing' : 'pointer';
+    } else if (this.hoveredDropId || this.hoveredPlayerId || this.hoveredWindow) {
       this.canvas.style.cursor = 'pointer';
     } else {
       this.canvas.style.cursor = 'crosshair';
@@ -494,6 +746,7 @@ export class PixelCanvasRenderer {
         Boolean(this.hoveredDropId) ||
         Boolean(this.hoveredPlayerId) ||
         Boolean(this.hoveredFurnitureId) ||
+        Boolean(this.hoveredWindow) ||
         Boolean(this.draggingFurnitureId);
       windowBridge.setClickThrough(!isOverInteractive);
     }
@@ -679,15 +932,57 @@ export class PixelCanvasRenderer {
     }
 
     // Draw Floating Chat Bubbles above avatars (max 80 chars, 6s duration)
+    const now = Date.now();
     for (const p of this.room.players) {
-      if (p.chatBubble && p.chatBubble.expiresAt > Date.now()) {
-        const phys = this.physics.get(p.userId);
-        const px = phys ? phys.renderX : p.x;
-        const py = floorY + (phys ? phys.renderY : 0) - 52;
+      const phys = this.physics.get(p.userId);
+      const px = phys ? phys.renderX : p.x;
+      const py = floorY + (phys ? phys.renderY : 0) - 52;
+      if (p.chatBubble && p.chatBubble.expiresAt > now) {
         this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
+      } else {
+        const thought = this.ambientThoughts.get(p.userId);
+        if (thought && thought.expiresAt > now) {
+          this.drawAmbientThoughtBubble(ctx, px, py + 4, thought.text, thought.expiresAt - now);
+        }
       }
     }
 
+    ctx.restore();
+  }
+
+  private drawAmbientThoughtBubble(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    text: string,
+    remainingMs: number
+  ) {
+    ctx.save();
+    const alpha = Math.min(0.92, remainingMs / 600);
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = 'bold 8.5px monospace';
+    const boxW = Math.min(220, ctx.measureText(text).width + 14);
+    const boxH = 15;
+    const clampedX = Math.max(
+      boxW / 2 + 6,
+      Math.min(PixelCanvasRenderer.WIDTH - boxW / 2 - 6, x)
+    );
+    const floatY = y - boxH + Math.round(Math.sin(this.tick * 0.1) * 1.5);
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(clampedX - boxW / 2, floatY, boxW, boxH);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(clampedX - boxW / 2, floatY, boxW, boxH);
+
+    // Little thought cloud dots
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
+    ctx.fillRect(clampedX - 1, floatY + boxH + 1, 3, 2);
+    ctx.fillRect(clampedX, floatY + boxH + 4, 2, 2);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, clampedX, floatY + 10.5);
     ctx.restore();
   }
 
@@ -1024,6 +1319,102 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-14, -34, 28, 12);
       ctx.fillStyle = colorOpt ? colorOpt.accent : '#fbcfe8';
       ctx.fillRect(-10, -38, 20, 8);
+    } else if (furn.itemId === 'furn_coffee_machine') {
+      // ☕ Estação de Café Expresso (Bancada + Cafeteira Italiana/Barista + Canecas + Vapor)
+      const cabColor = colorOpt ? colorOpt.primary : '#78350f';
+      const machineColor = colorOpt ? colorOpt.secondary : '#dc2626';
+      const cupAccent = colorOpt ? colorOpt.accent : '#fde047';
+
+      // Wooden Barista Cabinet
+      ctx.fillStyle = cabColor;
+      ctx.fillRect(-14, -18, 28, 18);
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-12, -15, 11, 12);
+      ctx.fillRect(1, -15, 11, 12);
+      // Countertop slab
+      ctx.fillStyle = '#d6d3d1';
+      ctx.fillRect(-15, -20, 30, 3);
+
+      // Espresso Machine Body
+      ctx.fillStyle = machineColor;
+      ctx.fillRect(-11, -33, 14, 13);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-10, -31, 12, 3);
+      // Grouphead & Portafilter
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-6, -26, 4, 3);
+      ctx.fillRect(-3, -25, 5, 1);
+      // Espresso cup underneath with warm coffee
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-6, -23, 4, 3);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-5, -23, 2, 1);
+
+      // Coffee Bean Grinder / Jar & Stacked Mugs on right
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(5, -29, 6, 9);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(6, -28, 4, 5);
+      ctx.fillStyle = cupAccent;
+      ctx.fillRect(11, -24, 3, 4);
+
+      // Animated rising coffee steam wisps
+      const steamOffset = (this.tick >> 3) % 4;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.fillRect(-5, -36 - steamOffset, 2, 3);
+      ctx.fillRect(-2, -34 - ((steamOffset + 2) % 4), 1, 2);
+    } else if (furn.itemId === 'furn_pet_bed') {
+      // 🛏️ Caminha Pet & Pufe Aconchegante
+      const bolsterColor = colorOpt ? colorOpt.primary : '#581c87';
+      const cushionColor = colorOpt ? colorOpt.secondary : '#a855f7';
+      const pillowTrim = colorOpt ? colorOpt.accent : '#fde047';
+
+      // Soft outer plush bolster ring
+      ctx.fillStyle = bolsterColor;
+      ctx.fillRect(-17, -9, 34, 9);
+      ctx.fillRect(-19, -7, 38, 6);
+      // Inner quilted cushion
+      ctx.fillStyle = cushionColor;
+      ctx.fillRect(-14, -7, 28, 5);
+      // Little side pillow / headrest
+      ctx.fillStyle = pillowTrim;
+      ctx.fillRect(-13, -10, 8, 4);
+      // Cute stitch dots on cushion
+      ctx.fillStyle = bolsterColor;
+      ctx.fillRect(-2, -5, 2, 1);
+      ctx.fillRect(5, -5, 2, 1);
+    } else if (furn.itemId === 'furn_monstera_plant') {
+      // 🪴 Vaso Costela-de-Adão (Monstera Deliciosa)
+      const potBase = colorOpt ? colorOpt.primary : '#b45309';
+      const potRim = colorOpt ? colorOpt.secondary : '#d97706';
+      const leafMain = '#15803d';
+      const leafBright = colorOpt ? colorOpt.accent : '#22c55e';
+      const sway = Math.round(Math.sin(this.tick * 0.05 + furn.x) * 1.5);
+
+      // Ceramic Pot & Stand
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-6, -3, 2, 3);
+      ctx.fillRect(4, -3, 2, 3);
+      ctx.fillStyle = potBase;
+      ctx.fillRect(-7, -13, 14, 10);
+      ctx.fillStyle = potRim;
+      ctx.fillRect(-8, -15, 16, 3);
+
+      // Stems
+      ctx.fillStyle = '#166534';
+      ctx.fillRect(-2, -25, 2, 10);
+      ctx.fillRect(1, -28, 2, 13);
+
+      // Broad Monstera Leaves with gentle sway
+      ctx.fillStyle = leafMain;
+      ctx.fillRect(-12 + sway, -26, 9, 7);
+      ctx.fillRect(3 + sway, -27, 9, 7);
+      ctx.fillStyle = leafBright;
+      ctx.fillRect(-6 + sway, -34, 12, 8);
+      // Fenestration slits on leaves
+      ctx.fillStyle = '#064e3b';
+      ctx.fillRect(-4 + sway, -32, 2, 1);
+      ctx.fillRect(2 + sway, -30, 2, 1);
     } else if (furn.itemId === 'furn_dj_booth') {
       // 🎛️ Mesa de DJ Double D (Toca-discos duplos + Mixer + Subwoofers + Equalizador LED Frontal)
       const boothBase = colorOpt ? colorOpt.primary : '#0f172a';
@@ -1145,6 +1536,8 @@ export class PixelCanvasRenderer {
     _H: number,
     floorY: number
   ) {
+    const dayInfo = getLocalDayTimeInfo();
+
     if (skinId === 'room_dense_forest') {
       // 🌲 Floresta Densa Encantada
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
@@ -1207,31 +1600,111 @@ export class PixelCanvasRenderer {
         ctx.fillRect(fx, fy, s, s);
       }
     } else if (skinId === 'room_office') {
-      // 🏢 Escritório Executivo Moderno
+      // 🏢 Escritório Executivo Moderno (Com Ciclo Dia / Pôr do Sol / Noite no Janelão e Relógio Real)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#1e293b');
-      grad.addColorStop(1, '#334155');
+      if (dayInfo.phase === 'DAY') {
+        grad.addColorStop(0, '#26354d');
+        grad.addColorStop(1, '#3b4f6b');
+      } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+        grad.addColorStop(0, '#2b243d');
+        grad.addColorStop(1, '#47364f');
+      } else {
+        grad.addColorStop(0, '#131c2e');
+        grad.addColorStop(1, '#1e293b');
+      }
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Panoramic Corporate Window with Skyline & Blinds (Left)
-      ctx.fillStyle = '#bae6fd';
+      // Panoramic Corporate Window with Dynamic Skyline (Left: x=20..130, y=20..102)
+      const winSkyGrad = ctx.createLinearGradient(0, 20, 0, 102);
+      if (dayInfo.phase === 'DAY') {
+        winSkyGrad.addColorStop(0, '#38bdf8');
+        winSkyGrad.addColorStop(1, '#bae6fd');
+      } else if (dayInfo.phase === 'DAWN') {
+        winSkyGrad.addColorStop(0, '#6d28d9');
+        winSkyGrad.addColorStop(0.55, '#f472b6');
+        winSkyGrad.addColorStop(1, '#fde047');
+      } else if (dayInfo.phase === 'SUNSET') {
+        winSkyGrad.addColorStop(0, '#7c2d12');
+        winSkyGrad.addColorStop(0.55, '#f97316');
+        winSkyGrad.addColorStop(1, '#fde047');
+      } else {
+        winSkyGrad.addColorStop(0, '#090d16');
+        winSkyGrad.addColorStop(1, '#1e1b4b');
+      }
+      ctx.fillStyle = winSkyGrad;
       ctx.fillRect(20, 20, 110, 82);
-      // City skyline silhouette in daylight
-      ctx.fillStyle = '#7dd3fc';
+
+      // Sun or Moon in Office Window
+      if (dayInfo.phase === 'DAY') {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(104, 28, 12, 12);
+      } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+        ctx.fillStyle = '#fb923c';
+        ctx.fillRect(98, 52, 16, 14);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(101, 55, 10, 8);
+      } else {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(106, 28, 10, 10);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(36, 30, 2, 2);
+        ctx.fillRect(74, 27, 2, 2);
+      }
+
+      // City skyline silhouette
+      const bldgColor =
+        dayInfo.phase === 'DAY'
+          ? '#0284c7'
+          : dayInfo.phase === 'NIGHT'
+            ? '#0f172a'
+            : '#31102f';
+      ctx.fillStyle = bldgColor;
       ctx.fillRect(28, 48, 22, 54);
       ctx.fillRect(54, 34, 28, 68);
       ctx.fillRect(88, 52, 32, 50);
+
+      // Lit building windows at Sunset/Night
+      if (dayInfo.phase === 'NIGHT' || dayInfo.phase === 'SUNSET') {
+        ctx.fillStyle = '#fde047';
+        for (let wy = 40; wy < 96; wy += 10) {
+          ctx.fillRect(58, wy, 4, 4);
+          ctx.fillRect(68, wy, 4, 4);
+          if (wy >= 54) {
+            ctx.fillRect(32, wy, 4, 4);
+            ctx.fillRect(94, wy, 4, 4);
+            ctx.fillRect(104, wy, 4, 4);
+          }
+        }
+      }
+
       // Horizontal office blinds
-      ctx.fillStyle = 'rgba(241, 245, 249, 0.65)';
-      for (let by = 24; by < 56; by += 6) {
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.45)';
+      for (let by = 24; by < 52; by += 6) {
         ctx.fillRect(22, by, 106, 2);
       }
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 3;
       ctx.strokeRect(20, 20, 110, 82);
 
-      // Wall Clock (Center)
+      // Diagonal Window Light Beam onto office floor
+      ctx.save();
+      ctx.fillStyle =
+        dayInfo.phase === 'DAY'
+          ? 'rgba(186, 230, 253, 0.10)'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? 'rgba(251, 146, 60, 0.13)'
+            : 'rgba(148, 163, 184, 0.06)';
+      ctx.beginPath();
+      ctx.moveTo(20, 102);
+      ctx.lineTo(130, 102);
+      ctx.lineTo(175, floorY);
+      ctx.lineTo(35, floorY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Wall Clock (Center) reflecting real time
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(156, 24, 18, 18);
       ctx.strokeStyle = '#0f172a';
@@ -1626,29 +2099,175 @@ export class PixelCanvasRenderer {
       ctx.fill();
       ctx.restore();
     } else {
-      // Default: Cozy Lofi Night Studio (room_cozy_desk)
-      const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#1e1b4b');
-      grad.addColorStop(1, '#312e81');
-      ctx.fillStyle = grad;
+      // Default: Estúdio Lofi Aconchegante com Ciclo Dia / Tarde / Pôr do Sol / Noite na Janela (room_cozy_desk)
+      const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
+      if (dayInfo.phase === 'DAY') {
+        wallGrad.addColorStop(0, '#27325c');
+        wallGrad.addColorStop(1, '#3b4c7e');
+      } else if (dayInfo.phase === 'DAWN') {
+        wallGrad.addColorStop(0, '#2e1d4a');
+        wallGrad.addColorStop(1, '#4c2d5e');
+      } else if (dayInfo.phase === 'SUNSET') {
+        wallGrad.addColorStop(0, '#361942');
+        wallGrad.addColorStop(1, '#5c2b45');
+      } else {
+        wallGrad.addColorStop(0, '#1e1b4b');
+        wallGrad.addColorStop(1, '#312e81');
+      }
+      ctx.fillStyle = wallGrad;
       ctx.fillRect(0, 0, W, floorY);
 
-      ctx.fillStyle = '#0f172a';
+      // Janela do Quarto (x: 28..104, y: 22..100) com Céu Dinâmico conforme Horário Local
+      const skyGrad = ctx.createLinearGradient(0, 22, 0, 100);
+      if (dayInfo.phase === 'DAY') {
+        skyGrad.addColorStop(0, '#0284c7');
+        skyGrad.addColorStop(0.55, '#38bdf8');
+        skyGrad.addColorStop(1, '#bae6fd');
+      } else if (dayInfo.phase === 'DAWN') {
+        skyGrad.addColorStop(0, '#4c1d95');
+        skyGrad.addColorStop(0.5, '#f472b6');
+        skyGrad.addColorStop(1, '#fde047');
+      } else if (dayInfo.phase === 'SUNSET') {
+        skyGrad.addColorStop(0, '#4c1d95');
+        skyGrad.addColorStop(0.45, '#c2410c');
+        skyGrad.addColorStop(0.8, '#f97316');
+        skyGrad.addColorStop(1, '#fde047');
+      } else {
+        skyGrad.addColorStop(0, '#090d16');
+        skyGrad.addColorStop(1, '#0f172a');
+      }
+      ctx.fillStyle = skyGrad;
       ctx.fillRect(28, 22, 76, 78);
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(78, 36, 12, 12);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(83, 34, 10, 10);
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillRect(42, 40, 2, 2);
-      ctx.fillRect(56, 62, 2, 2);
-      ctx.fillRect(48, 80, 2, 2);
-      ctx.strokeStyle = '#475569';
+
+      // Elementos dentro da janela conforme o horário real
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(28, 22, 76, 78);
+      ctx.clip();
+
+      if (dayInfo.phase === 'DAY') {
+        // Sol radiante + Halo suave
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.32)';
+        ctx.fillRect(73, 29, 20, 20);
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(76, 32, 14, 14);
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(78, 34, 10, 10);
+
+        // Nuvens brancas fofinhas passando devagar
+        const cloud1X = 28 + (((this.tick * 0.15) % 86) - 18);
+        const cloud2X = 28 + ((((this.tick * 0.1) + 44) % 86) - 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(cloud1X), 48, 20, 5);
+        ctx.fillRect(Math.round(cloud1X) + 4, 45, 12, 3);
+        ctx.fillRect(Math.round(cloud2X), 66, 16, 4);
+        ctx.fillRect(Math.round(cloud2X) + 3, 63, 10, 3);
+
+        // Colinas verdes distantes na base da janela
+        ctx.fillStyle = '#15803d';
+        ctx.fillRect(28, 86, 46, 14);
+        ctx.fillStyle = '#166534';
+        ctx.fillRect(62, 83, 42, 17);
+      } else if (dayInfo.phase === 'DAWN') {
+        // Sol nascendo no horizonte rosado/dourado
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.35)';
+        ctx.fillRect(52, 66, 28, 22);
+        ctx.fillStyle = '#fb923c';
+        ctx.fillRect(56, 70, 20, 18);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(59, 73, 14, 14);
+
+        // Nuvens rosadas matinais
+        ctx.fillStyle = '#fbcfe8';
+        ctx.fillRect(34, 42, 22, 4);
+        ctx.fillRect(70, 36, 18, 4);
+
+        // Silhueta suave no horizonte
+        ctx.fillStyle = '#3b0764';
+        ctx.fillRect(28, 88, 76, 12);
+      } else if (dayInfo.phase === 'SUNSET') {
+        // Pôr do sol alaranjado clássico (16h30–18h45)
+        ctx.fillStyle = 'rgba(249, 115, 22, 0.35)';
+        ctx.fillRect(50, 56, 30, 28);
+        ctx.fillStyle = '#ea580c';
+        ctx.fillRect(54, 60, 22, 20);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(58, 64, 14, 12);
+
+        // Nuvens douradas/púrpura de fim de tarde
+        const scX = 28 + (((this.tick * 0.1) % 84) - 16);
+        ctx.fillStyle = '#fed7aa';
+        ctx.fillRect(Math.round(scX), 38, 22, 4);
+        ctx.fillStyle = '#c084fc';
+        ctx.fillRect(66, 48, 24, 4);
+
+        // Silhueta dos telhados/colinas ao entardecer
+        ctx.fillStyle = '#27171c';
+        ctx.fillRect(28, 86, 42, 14);
+        ctx.fillRect(64, 82, 40, 18);
+      } else {
+        // Noite estrelada com Lua Crescente
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(78, 36, 12, 12);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(83, 34, 10, 10);
+
+        // Estrelas cintilando
+        const starBlink = (this.tick >> 4) % 2 === 0;
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(42, 40, 2, 2);
+        ctx.fillRect(56, 62, starBlink ? 2 : 1, starBlink ? 2 : 1);
+        ctx.fillRect(48, 80, 2, 2);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(68, 52, starBlink ? 1 : 2, starBlink ? 1 : 2);
+        ctx.fillRect(36, 66, 2, 2);
+      }
+      ctx.restore();
+
+      // Cruz das esquadrias da janela + moldura + peitoril
+      ctx.fillStyle = 'rgba(71, 85, 105, 0.75)';
+      ctx.fillRect(65, 22, 2, 78);
+      ctx.fillRect(28, 60, 76, 2);
+      ctx.strokeStyle = this.hoveredWindow ? '#facc15' : '#475569';
       ctx.lineWidth = 4;
       ctx.strokeRect(28, 22, 76, 78);
       ctx.fillStyle = '#334155';
       ctx.fillRect(22, 98, 88, 6);
 
+      // Feixe de Luz entrando pela Janela (Luz do Sol / Luz Alaranjada do Pôr do Sol / Luar Suave)
+      ctx.save();
+      if (dayInfo.phase === 'DAY') {
+        ctx.fillStyle = 'rgba(254, 249, 195, 0.13)';
+      } else if (dayInfo.phase === 'SUNSET') {
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.17)';
+      } else if (dayInfo.phase === 'DAWN') {
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.13)';
+      } else {
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
+      }
+      ctx.beginPath();
+      ctx.moveTo(28, 100);
+      ctx.lineTo(104, 100);
+      ctx.lineTo(164, floorY);
+      ctx.lineTo(42, floorY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Partículas de poeira dourada flutuando dentro do feixe de luz solar/pôr do sol
+      if (dayInfo.phase !== 'NIGHT') {
+        ctx.fillStyle =
+          dayInfo.phase === 'SUNSET'
+            ? 'rgba(253, 224, 71, 0.65)'
+            : 'rgba(255, 255, 255, 0.55)';
+        for (let m = 0; m < 6; m++) {
+          const mx = 46 + ((m * 19 + Math.round(Math.sin(this.tick * 0.04 + m) * 5)) % 92);
+          const my = 104 + ((m * 11 + Math.round(Math.cos(this.tick * 0.03 + m) * 4)) % (floorY - 108));
+          ctx.fillRect(mx, my, 2, 2);
+        }
+      }
+      ctx.restore();
+
+      // Estante de livros na parede direita
       ctx.fillStyle = '#451a03';
       ctx.fillRect(246, 36, 76, 62);
       ctx.fillStyle = '#78350f';
@@ -1662,6 +2281,7 @@ export class PixelCanvasRenderer {
         ctx.fillRect(256 + i * 11, 72, 9, 22);
       }
 
+      // Plantinha nativa do cenário
       ctx.fillStyle = '#b45309';
       ctx.fillRect(152, floorY - 14, 14, 14);
       ctx.fillStyle = '#10b981';
@@ -1820,7 +2440,17 @@ export class PixelCanvasRenderer {
   private drawPlayer(ctx: CanvasRenderingContext2D, p: RoomPlayerState, floorY: number) {
     const phys = this.physics.get(p.userId);
     const x = Math.round(phys ? phys.renderX : p.x);
-    let y = Math.round(floorY + (phys ? phys.renderY : 0));
+    let seatOffsetY = 0;
+    if (this.room?.placedFurniture && Math.abs(p.targetX - x) <= 2) {
+      for (const furn of this.room.placedFurniture) {
+        const inter = FURNITURE_INTERACTIONS[furn.itemId];
+        if (inter?.seatOffsetY && Math.abs(x - furn.x) <= 18) {
+          seatOffsetY = inter.seatOffsetY;
+          break;
+        }
+      }
+    }
+    let y = Math.round(floorY + (phys ? phys.renderY : 0) + seatOffsetY);
 
     const now = Date.now();
     const spawnElapsed = p.spawnFx ? now - p.spawnFx.startedAt : 99999;
