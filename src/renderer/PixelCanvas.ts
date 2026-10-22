@@ -62,6 +62,7 @@ export class PixelCanvasRenderer {
   private room: RoomSnapshot | null = null;
   private myUserId = '';
   private selectedTargetUserId: string | null = null;
+  private selectedTargetExpiresAt = 0;
   public editFurnitureMode = false;
 
   // Zoom / Escala da Câmera (1.0x, 1.25x, 1.5x)
@@ -102,6 +103,7 @@ export class PixelCanvasRenderer {
 
   public setSelectedTarget(userId: string | null) {
     this.selectedTargetUserId = userId;
+    this.selectedTargetExpiresAt = userId ? Date.now() + 2000 : 0;
   }
 
   public cycleZoom(): number {
@@ -355,12 +357,14 @@ export class PixelCanvasRenderer {
       // 2. Check if clicking another player avatar
       if (this.hoveredPlayerId && this.hoveredPlayerId !== this.myUserId) {
         this.selectedTargetUserId = this.hoveredPlayerId;
+        this.selectedTargetExpiresAt = Date.now() + 2000;
         this.callbacks.onSelectPlayer(this.hoveredPlayerId);
         this.callbacks.onPokePlayer(this.hoveredPlayerId);
         return;
       }
 
-      // 3. Otherwise move our avatar along the X axis
+      // 3. Otherwise move our avatar along the X axis (and clear any target highlight)
+      this.selectedTargetExpiresAt = 0;
       const clampedX = Math.max(24, Math.min(336, Math.round(x)));
       const myPhys = this.physics.get(this.myUserId);
       if (myPhys) {
@@ -1867,9 +1871,11 @@ export class PixelCanvasRenderer {
 
     const baseTop = -28 - walkBob;
 
-    // Selection ring if targeted
-    if (this.selectedTargetUserId === p.userId) {
-      ctx.strokeStyle = '#facc15';
+    // Selection ring if targeted (desaparece automaticamente após 2 segundos)
+    if (this.selectedTargetUserId === p.userId && now < this.selectedTargetExpiresAt) {
+      const remainingMs = this.selectedTargetExpiresAt - now;
+      const alpha = Math.min(1, remainingMs / 500);
+      ctx.strokeStyle = `rgba(250, 204, 21, ${alpha.toFixed(2)})`;
       ctx.lineWidth = 1;
       ctx.strokeRect(-14, baseTop - 6, 28, 36);
     }
