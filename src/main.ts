@@ -159,6 +159,17 @@ declare global {
 const AUTH_SESSION_KEY = 'pc_auth_session';
 const WELLNESS_PREF_KEY = 'pc_wellness_enabled';
 
+// Intervalo do passeio autônomo (Wander): entre 2m00s (120.000ms) e 2m30s (150.000ms)
+const WANDER_MIN_INTERVAL_MS = 120_000;
+const WANDER_MAX_INTERVAL_MS = 150_000;
+
+function getRandomWanderIntervalMs(): number {
+  return (
+    WANDER_MIN_INTERVAL_MS +
+    Math.floor(Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS + 1))
+  );
+}
+
 class PocketCornerApp {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
   private renderer!: PixelCanvasRenderer;
@@ -196,7 +207,7 @@ class PocketCornerApp {
   private manualActionSelected = false;
   private isInFurnitureOrWanderActivity = false;
   private lastManualInputAt = Date.now();
-  private nextAutonomousWanderAt = Date.now() + 20_000;
+  private nextAutonomousWanderAt = Date.now() + getRandomWanderIntervalMs();
   private wanderArrivalTimer: number | null = null;
   private autoIdleOnBlur = true;
   private previewAnimId = 0;
@@ -1137,8 +1148,7 @@ class PocketCornerApp {
 
   private recordManualInput() {
     this.lastManualInputAt = Date.now();
-    this.nextAutonomousWanderAt =
-      Date.now() + 20_000 + Math.floor(Math.random() * 12_000);
+    this.nextAutonomousWanderAt = Date.now() + getRandomWanderIntervalMs();
     if (this.wanderArrivalTimer) {
       window.clearTimeout(this.wanderArrivalTimer);
       this.wanderArrivalTimer = null;
@@ -1169,8 +1179,7 @@ class PocketCornerApp {
 
     if (isManualClick) {
       this.lastManualInputAt = Date.now();
-      this.nextAutonomousWanderAt =
-        Date.now() + 24_000 + Math.floor(Math.random() * 14_000);
+      this.nextAutonomousWanderAt = Date.now() + getRandomWanderIntervalMs();
     }
 
     if (this.wanderArrivalTimer) {
@@ -1210,10 +1219,10 @@ class PocketCornerApp {
   private triggerAutonomousWanderIfIdle() {
     const now = Date.now();
     if (now < this.nextAutonomousWanderAt) return;
-    if (now - this.lastManualInputAt < 18_000) return;
+    if (now - this.lastManualInputAt < WANDER_MIN_INTERVAL_MS) return;
 
-    // Agenda o próximo passeio autônomo entre 20s e 36s
-    this.nextAutonomousWanderAt = now + 20_000 + Math.floor(Math.random() * 16_000);
+    // Agenda o próximo passeio autônomo entre 2m00s (120s) e 2m30s (150s)
+    this.nextAutonomousWanderAt = now + getRandomWanderIntervalMs();
 
     if (!this.room || !this.profile) return;
     if (this.profile.hostStatus === 'DND') return;
