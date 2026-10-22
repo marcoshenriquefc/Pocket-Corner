@@ -907,6 +907,128 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     previewColor: '#facc15',
     meta: { widthPx: 62 },
   },
+
+  // ==========================================
+  // 10. PETS COMPANHEIROS (TODOS EM DIAMANTES 💎)
+  // Apenas 1 equipado por vez • Raças personalizáveis após a compra
+  // ==========================================
+  {
+    id: 'pet_cat',
+    name: 'Gatinho Companheiro',
+    category: 'companion_pet',
+    rarity: 'RARE',
+    currency: 'GEMS',
+    price: 45,
+    inGachapon: false,
+    description:
+      'Miau! Um gatinho carinhoso que caminha ao seu lado no cantinho. Inclui 6 raças personalizáveis (Siamês, Laranja, Pretinho, Persa, Frajola e Tricolor)!',
+    icon: '🐱',
+    previewColor: '#f59e0b',
+  },
+  {
+    id: 'pet_dog',
+    name: 'Cachorrinho Fiel',
+    category: 'companion_pet',
+    rarity: 'RARE',
+    currency: 'GEMS',
+    price: 50,
+    inGachapon: false,
+    description:
+      'Seu melhor amigo de expediente com rabinho abanando! Escolha livremente entre 6 raças (Caramelo, Golden, Husky, Pug, Shiba Inu e Dálmata).',
+    icon: '🐶',
+    previewColor: '#d97706',
+  },
+  {
+    id: 'pet_dragon',
+    name: 'Dragão Guardião Ancestral',
+    category: 'companion_pet',
+    rarity: 'LEGENDARY',
+    currency: 'GEMS',
+    price: 120,
+    inGachapon: false,
+    description:
+      '🐉 COLOSSAL: Um imponente dragão alado MAIOR que os outros pets e maior que o próprio Pip! Escolha entre 5 linhagens elementais (Rubi de Fogo, Glacial, Esmeralda, Obsidiana e Celestial Dourado).',
+    icon: '🐉',
+    previewColor: '#ef4444',
+  },
+  {
+    id: 'pet_dino',
+    name: 'Dinossauro Pré-Histórico',
+    category: 'companion_pet',
+    rarity: 'EPIC',
+    currency: 'GEMS',
+    price: 65,
+    inGachapon: false,
+    description:
+      'Direto do Jurássico para a sua mesa de trabalho! Personalize entre 5 espécies/raças (T-Rex Verde, Triceratops Azul, Velociraptor Laranja, Estegossauro Roxo e T-Rex Albino).',
+    icon: '🦖',
+    previewColor: '#16a34a',
+  },
+  {
+    id: 'pet_fox',
+    name: 'Raposinha Astuta',
+    category: 'companion_pet',
+    rarity: 'RARE',
+    currency: 'GEMS',
+    price: 55,
+    inGachapon: false,
+    description:
+      'Rabo felpudo e orelhinhas atentas! Personalize entre 5 raças (Raposa Vermelha, Ártica Branca, Fennec do Deserto, Prateada e Kitsune Dourada).',
+    icon: '🦊',
+    previewColor: '#ea580c',
+  },
+  {
+    id: 'pet_bunny',
+    name: 'Coelhinho Saltitante',
+    category: 'companion_pet',
+    rarity: 'RARE',
+    currency: 'GEMS',
+    price: 40,
+    inGachapon: false,
+    description:
+      'Dá pulinhos fofos enquanto acompanha seu foco! Escolha entre 5 raças (Neve, Lop Caramelo, Holandês Malhado, Chinchila e Algodão-Doce).',
+    icon: '🐰',
+    previewColor: '#f472b6',
+  },
+  {
+    id: 'pet_owl',
+    name: 'Corujinha Sábia',
+    category: 'companion_pet',
+    rarity: 'EPIC',
+    currency: 'GEMS',
+    price: 55,
+    inGachapon: false,
+    description:
+      'Companheira noturna de estudos e código! Escolha entre 4 raças (Coruja-das-Neves, Buraqueira Marrom, Real Dourada e Cósmica Estelar).',
+    icon: '🦉',
+    previewColor: '#8b5cf6',
+  },
+  {
+    id: 'pet_capybara',
+    name: 'Capivara Zen',
+    category: 'companion_pet',
+    rarity: 'EPIC',
+    currency: 'GEMS',
+    price: 60,
+    inGachapon: false,
+    description:
+      'Paz absoluta no expediente com uma tangerina na cabeça! Escolha entre 4 variações (Clássica com Laranja, Termas Onsen, Dourada Real e Chocolate).',
+    icon: '🦫',
+    previewColor: '#92400e',
+  },
+  {
+    id: 'pet_panda',
+    name: 'Ursinho Companheiro',
+    category: 'companion_pet',
+    rarity: 'EPIC',
+    currency: 'GEMS',
+    price: 60,
+    inGachapon: false,
+    description:
+      'Fofinho e redondo para acompanhar seu dia! Escolha entre 5 raças de ursinhos (Panda Gigante, Panda Vermelho, Urso Polar, Urso Pardo e Panda Sakura).',
+    icon: '🐼',
+    previewColor: '#10b981',
+  },
 ];
 
 // ==========================================
@@ -1030,3 +1152,94 @@ export function getCosmeticById(itemId: string): CosmeticItem | undefined {
 export function getRealMoneyPackageById(pkgId: string): RealMoneyPackage | undefined {
   return REAL_MONEY_PACKAGES_BY_ID.get(pkgId);
 }
+
+// ==========================================
+// 11. RAÇAS / VARIAÇÕES DOS PETS COMPANHEIROS
+// Escolhidas livremente pelo dono após adquirir o pet!
+// ==========================================
+export interface PetBreedOption {
+  id: string;
+  name: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  eyeColor: string;
+}
+
+export const PET_BREED_OPTIONS: Record<string, PetBreedOption[]> = {
+  pet_cat: [
+    { id: 'siamese', name: 'Siamês Real', primaryColor: '#f5ebe0', secondaryColor: '#4a3525', accentColor: '#38bdf8', eyeColor: '#0ea5e9' },
+    { id: 'orange', name: 'Laranja Tigrado', primaryColor: '#f59e0b', secondaryColor: '#b45309', accentColor: '#fef3c7', eyeColor: '#16a34a' },
+    { id: 'black', name: 'Pretinho da Sorte', primaryColor: '#1e293b', secondaryColor: '#0f172a', accentColor: '#f43f5e', eyeColor: '#facc15' },
+    { id: 'white', name: 'Persa Branco', primaryColor: '#f8fafc', secondaryColor: '#e2e8f0', accentColor: '#f472b6', eyeColor: '#38bdf8' },
+    { id: 'tuxedo', name: 'Frajola (Smoking)', primaryColor: '#1e293b', secondaryColor: '#ffffff', accentColor: '#fb7185', eyeColor: '#22c55e' },
+    { id: 'calico', name: 'Tricolor Calico', primaryColor: '#ffffff', secondaryColor: '#ea580c', accentColor: '#1e293b', eyeColor: '#ca8a04' },
+  ],
+  pet_dog: [
+    { id: 'caramelo', name: 'Vira-lata Caramelo', primaryColor: '#d97706', secondaryColor: '#92400e', accentColor: '#ef4444', eyeColor: '#1e1b18' },
+    { id: 'golden', name: 'Golden Retriever', primaryColor: '#fbbf24', secondaryColor: '#d97706', accentColor: '#3b82f6', eyeColor: '#1e1b18' },
+    { id: 'husky', name: 'Husky Siberiano', primaryColor: '#475569', secondaryColor: '#f8fafc', accentColor: '#06b6d4', eyeColor: '#38bdf8' },
+    { id: 'pug', name: 'Pug Fofinho', primaryColor: '#e7d5b8', secondaryColor: '#292524', accentColor: '#ec4899', eyeColor: '#1e1b18' },
+    { id: 'shiba', name: 'Shiba Inu', primaryColor: '#ea580c', secondaryColor: '#fef3c7', accentColor: '#16a34a', eyeColor: '#1e1b18' },
+    { id: 'dalmatian', name: 'Dálmata Pintado', primaryColor: '#f8fafc', secondaryColor: '#0f172a', accentColor: '#dc2626', eyeColor: '#1e1b18' },
+  ],
+  pet_dragon: [
+    { id: 'fire_ruby', name: 'Rubi de Fogo', primaryColor: '#dc2626', secondaryColor: '#f59e0b', accentColor: '#fef08a', eyeColor: '#facc15' },
+    { id: 'ice_frost', name: 'Dragão Glacial', primaryColor: '#0284c7', secondaryColor: '#bae6fd', accentColor: '#e0f2fe', eyeColor: '#38bdf8' },
+    { id: 'emerald', name: 'Esmeralda Ancestral', primaryColor: '#059669', secondaryColor: '#a7f3d0', accentColor: '#fbbf24', eyeColor: '#fde047' },
+    { id: 'shadow_obsidian', name: 'Obsidiana Sombrio', primaryColor: '#1e1b4b', secondaryColor: '#7c3aed', accentColor: '#c084fc', eyeColor: '#e879f9' },
+    { id: 'golden_celestial', name: 'Celestial Dourado', primaryColor: '#eab308', secondaryColor: '#fef9c3', accentColor: '#f97316', eyeColor: '#38bdf8' },
+  ],
+  pet_dino: [
+    { id: 'trex_green', name: 'T-Rex Verde', primaryColor: '#16a34a', secondaryColor: '#86efac', accentColor: '#dc2626', eyeColor: '#facc15' },
+    { id: 'triceratops_blue', name: 'Triceratops Azul', primaryColor: '#2563eb', secondaryColor: '#93c5fd', accentColor: '#f8fafc', eyeColor: '#fde047' },
+    { id: 'raptor_orange', name: 'Velociraptor Laranja', primaryColor: '#ea580c', secondaryColor: '#fed7aa', accentColor: '#7c2d12', eyeColor: '#bef264' },
+    { id: 'stego_purple', name: 'Estegossauro Roxo', primaryColor: '#7c3aed', secondaryColor: '#ddd6fe', accentColor: '#f43f5e', eyeColor: '#fde047' },
+    { id: 'trex_albino', name: 'T-Rex Albino Real', primaryColor: '#f1f5f9', secondaryColor: '#cbd5e1', accentColor: '#ef4444', eyeColor: '#ef4444' },
+  ],
+  pet_fox: [
+    { id: 'red_fox', name: 'Raposa Vermelha', primaryColor: '#ea580c', secondaryColor: '#ffffff', accentColor: '#1e293b', eyeColor: '#ca8a04' },
+    { id: 'arctic_fox', name: 'Raposa do Ártico', primaryColor: '#f8fafc', secondaryColor: '#bae6fd', accentColor: '#64748b', eyeColor: '#0ea5e9' },
+    { id: 'fennec_fox', name: 'Raposa Fennec', primaryColor: '#fde68a', secondaryColor: '#fffbeb', accentColor: '#b45309', eyeColor: '#1e1b18' },
+    { id: 'silver_fox', name: 'Raposa Prateada', primaryColor: '#334155', secondaryColor: '#e2e8f0', accentColor: '#0f172a', eyeColor: '#facc15' },
+    { id: 'kitsune_gold', name: 'Kitsune Mística', primaryColor: '#fbbf24', secondaryColor: '#fff7ed', accentColor: '#ef4444', eyeColor: '#dc2626' },
+  ],
+  pet_bunny: [
+    { id: 'white_snow', name: 'Branquinho Neve', primaryColor: '#ffffff', secondaryColor: '#fbcfe8', accentColor: '#f43f5e', eyeColor: '#ec4899' },
+    { id: 'caramel_lop', name: 'Lop Caramelo', primaryColor: '#d97706', secondaryColor: '#fef3c7', accentColor: '#92400e', eyeColor: '#1e1b18' },
+    { id: 'dutch_panda', name: 'Holandês Malhado', primaryColor: '#1e293b', secondaryColor: '#ffffff', accentColor: '#f472b6', eyeColor: '#1e1b18' },
+    { id: 'chinchilla_grey', name: 'Cinza Chinchila', primaryColor: '#94a3b8', secondaryColor: '#f1f5f9', accentColor: '#fda4af', eyeColor: '#1e1b18' },
+    { id: 'pastel_pink', name: 'Algodão-Doce Rosa', primaryColor: '#f9a8d4', secondaryColor: '#fdf2f8', accentColor: '#ec4899', eyeColor: '#831843' },
+  ],
+  pet_owl: [
+    { id: 'snowy_owl', name: 'Coruja-das-Neves', primaryColor: '#f8fafc', secondaryColor: '#cbd5e1', accentColor: '#475569', eyeColor: '#facc15' },
+    { id: 'barn_brown', name: 'Buraqueira Marrom', primaryColor: '#92400e', secondaryColor: '#fde68a', accentColor: '#78350f', eyeColor: '#fbbf24' },
+    { id: 'golden_eagle_owl', name: 'Coruja Real Dourada', primaryColor: '#d97706', secondaryColor: '#fef08a', accentColor: '#451a03', eyeColor: '#f97316' },
+    { id: 'cosmic_night', name: 'Coruja Cósmica', primaryColor: '#312e81', secondaryColor: '#c084fc', accentColor: '#38bdf8', eyeColor: '#fde047' },
+  ],
+  pet_capybara: [
+    { id: 'classic_orange', name: 'Clássica com Laranja', primaryColor: '#92400e', secondaryColor: '#78350f', accentColor: '#f97316', eyeColor: '#1e1b18' },
+    { id: 'onsen_towel', name: 'Termas Onsen', primaryColor: '#a16207', secondaryColor: '#713f12', accentColor: '#ffffff', eyeColor: '#1e1b18' },
+    { id: 'golden_capy', name: 'Capivara Dourada', primaryColor: '#eab308', secondaryColor: '#ca8a04', accentColor: '#ef4444', eyeColor: '#1e1b18' },
+    { id: 'choco_capy', name: 'Capivara Chocolate', primaryColor: '#451a03', secondaryColor: '#270e02', accentColor: '#22c55e', eyeColor: '#1e1b18' },
+  ],
+  pet_panda: [
+    { id: 'giant_panda', name: 'Panda Gigante', primaryColor: '#ffffff', secondaryColor: '#0f172a', accentColor: '#22c55e', eyeColor: '#ffffff' },
+    { id: 'red_panda', name: 'Panda Vermelho', primaryColor: '#dc2626', secondaryColor: '#451a03', accentColor: '#ffffff', eyeColor: '#1e1b18' },
+    { id: 'polar_bear', name: 'Urso Polar', primaryColor: '#f8fafc', secondaryColor: '#e2e8f0', accentColor: '#38bdf8', eyeColor: '#0f172a' },
+    { id: 'grizzly_bear', name: 'Urso Pardo Grizzly', primaryColor: '#78350f', secondaryColor: '#451a03', accentColor: '#d97706', eyeColor: '#1e1b18' },
+    { id: 'sakura_panda', name: 'Panda Sakura Rosa', primaryColor: '#fdf2f8', secondaryColor: '#ec4899', accentColor: '#f43f5e', eyeColor: '#ffffff' },
+  ],
+};
+
+export function getPetBreedOption(petId: string, variantId?: string): PetBreedOption {
+  const breeds = PET_BREED_OPTIONS[petId] || [
+    { id: 'default', name: 'Clássico', primaryColor: '#f59e0b', secondaryColor: '#78350f', accentColor: '#ef4444', eyeColor: '#1e1b18' },
+  ];
+  if (variantId) {
+    const found = breeds.find((b) => b.id === variantId);
+    if (found) return found;
+  }
+  return breeds[0];
+}
+

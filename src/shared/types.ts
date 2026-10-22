@@ -6,6 +6,7 @@ export type CosmeticCategory =
   | 'avatar_body'
   | 'avatar_head'
   | 'avatar_back'
+  | 'companion_pet'
   | 'spawn_fx'
   | 'chat_skin'
   | 'throwable'
@@ -103,6 +104,8 @@ export interface EquippedLoadout {
   avatar_body: string;
   avatar_head: string;
   avatar_back: string;
+  companion_pet?: string; // ID do Pet equipado (apenas 1 por vez, ou '' para nenhum)
+  companion_pet_variant?: string; // Raça / variação escolhida para o Pet equipado
   spawn_fx: string;
   chat_skin: string;
   throwable: string;
@@ -133,6 +136,7 @@ export interface UserProfile {
   gems: number;
   inventory: string[]; // Array of owned item_ids (verified server-side)
   equipped: EquippedLoadout;
+  petVariants?: Record<string, string>; // Raça escolhida por petId (ex: { pet_cat: 'siames', pet_dog: 'husky' })
   placedFurniture: PlacedFurnitureItem[]; // Móveis posicionados no cenário do usuário
   friends: string[]; // Array of ACCEPTED friend user_ids
   pendingIncomingFriends?: string[];
@@ -291,6 +295,8 @@ export interface ClientToServerEvents {
 
   // Economia & Inventário (Server-Side Inventory Verification)
   'inventory:equip': (payload: { itemId: string }) => void;
+  'pet:set_variant': (payload: { petId: string; variantId: string }) => void;
+  'pet:unequip': () => void;
   'shop:buy': (payload: { itemId: string }) => void;
   'shop:gachapon': () => void;
   'economy:claim_starter_pack': () => void;

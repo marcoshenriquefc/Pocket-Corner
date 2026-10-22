@@ -1264,3 +1264,166 @@ html.desktop-widget-only .minimal-shell {
   background: rgba(248, 113, 113, 0.18);
   color: #f87171;
 }
+
+/* ==========================================
+   Barra Flutuante de Sons Ambientes de Foco (Grátis + Volume Independente)
+   ========================================== */
+.ambient-sound-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: rgba(15, 23, 42, 0.86);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  max-width: min(760px, 95vw);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+body.transparent-overlay .ambient-sound-bar {
+  display: none;
+}
+
+.ambient-bar-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ambient-bar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ambient-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ambient-chip:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.ambient-chip.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--accent-cyan);
+  color: #e0f2fe;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.ambient-volume-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ambient-volume-slider {
+  width: 66px;
+  height: 4px;
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+}
+
+.ambient-stop-btn {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 99px;
+  color: #fca5a5;
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+/* ==========================================
+   Seletor de Raças / Variações dos Pets Companheiros
+   ========================================== */
+.pet-item-card {
+  grid-column: 1 / -1;
+}
+
+.pet-breed-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pet-breed-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pet-breed-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.pet-breed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.pet-breed-chip:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.pet-breed-chip.active {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: var(--accent-gold);
+  color: #fef08a;
+}
+
+.pet-breed-chip:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.pet-breed-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+

@@ -5,8 +5,10 @@ import {
   COSMETIC_CATALOG,
   DEFAULT_EQUIPPED,
   GACHAPON_COST_COINS,
+  PET_BREED_OPTIONS,
   STARTER_INVENTORY_IDS,
   getCosmeticById,
+  getPetBreedOption,
   getRealMoneyPackageById,
 } from '../src/shared/catalog';
 import {
@@ -600,6 +602,20 @@ export class PocketStore {
       }
     });
 
+    if (
+      user.equipped.companion_pet &&
+      (isAdmin || user.inventory.includes(user.equipped.companion_pet))
+    ) {
+      safeEquipped.companion_pet = user.equipped.companion_pet;
+      safeEquipped.companion_pet_variant =
+        user.petVariants?.[user.equipped.companion_pet] ||
+        user.equipped.companion_pet_variant ||
+        getPetBreedOption(user.equipped.companion_pet).id;
+    } else {
+      safeEquipped.companion_pet = '';
+      safeEquipped.companion_pet_variant = '';
+    }
+
     this.sessionCosmeticsCache.set(userId, safeEquipped);
     return safeEquipped;
   }
@@ -750,7 +766,16 @@ export class PocketStore {
       return this.placeFurniture(userId, itemId);
     }
 
-    user.equipped[cosmetic.category] = itemId;
+    if (cosmetic.category === 'companion_pet') {
+      user.equipped.companion_pet = itemId;
+      if (!user.petVariants) user.petVariants = {};
+      const breedId = user.petVariants[itemId] || getPetBreedOption(itemId).id;
+      user.petVariants[itemId] = breedId;
+      user.equipped.companion_pet_variant = breedId;
+    } else {
+      user.equipped[cosmetic.category] = itemId;
+    }
+
     this.saveDB();
     const updatedLoadout = this.loadSessionCosmetics(userId);
 
@@ -764,6 +789,72 @@ export class PocketStore {
     }
 
     return { ok: true, message: `${cosmetic.icon} ${cosmetic.name} equipado com sucesso!` };
+  }
+
+  public unequipPet(userId: string): { ok: boolean; message: string } {
+    const user = this.db.users[userId];
+    if (!user) return { ok: false, message: 'Usuário não encontrado.' };
+
+    user.equipped.companion_pet = '';
+    user.equipped.companion_pet_variant = '';
+    this.saveDB();
+    const updatedLoadout = this.loadSessionCosmetics(userId);
+
+    const currentRoomHostId = this.userCurrentRoom.get(userId);
+    if (currentRoomHostId) {
+      const room = this.rooms.get(currentRoomHostId);
+      const playerState = room?.players.get(userId);
+      if (playerState) {
+        playerState.equipped = updatedLoadout;
+      }
+    }
+
+    return { ok: true, message: '🐾 Pet guardado na mochila para descansar!' };
+  }
+
+  public setPetVariant(
+    userId: string,
+    petId: string,
+    variantId: string
+  ): { ok: boolean; message: string } {
+    const user = this.db.users[userId];
+    if (!user) return { ok: false, message: 'Usuário não encontrado.' };
+
+    const cosmetic = getCosmeticById(petId);
+    if (!cosmetic || cosmetic.category !== 'companion_pet') {
+      return { ok: false, message: 'Pet inválido.' };
+    }
+
+    if (!this.verifyOwnership(userId, petId)) {
+      return { ok: false, message: 'Compre este pet primeiro para escolher a raça!' };
+    }
+
+    const breeds = PET_BREED_OPTIONS[petId] || [];
+    const chosenBreed = breeds.find((b) => b.id === variantId) || getPetBreedOption(petId);
+
+    if (!user.petVariants) user.petVariants = {};
+    user.petVariants[petId] = chosenBreed.id;
+
+    // Também equipa o pet automaticamente com a raça escolhida
+    user.equipped.companion_pet = petId;
+    user.equipped.companion_pet_variant = chosenBreed.id;
+
+    this.saveDB();
+    const updatedLoadout = this.loadSessionCosmetics(userId);
+
+    const currentRoomHostId = this.userCurrentRoom.get(userId);
+    if (currentRoomHostId) {
+      const room = this.rooms.get(currentRoomHostId);
+      const playerState = room?.players.get(userId);
+      if (playerState) {
+        playerState.equipped = updatedLoadout;
+      }
+    }
+
+    return {
+      ok: true,
+      message: `${cosmetic.icon} Raça "${chosenBreed.name}" selecionada para ${cosmetic.name}!`,
+    };
   }
 
   public buyItem(userId: string, itemId: string): { ok: boolean; message: string } {
@@ -804,6 +895,12 @@ export class PocketStore {
     user.inventory.push(itemId);
     if (item.category === 'furniture') {
       this.placeFurniture(userId, itemId);
+    } else if (item.category === 'companion_pet') {
+      user.equipped.companion_pet = itemId;
+      if (!user.petVariants) user.petVariants = {};
+      const breedId = user.petVariants[itemId] || getPetBreedOption(itemId).id;
+      user.petVariants[itemId] = breedId;
+      user.equipped.companion_pet_variant = breedId;
     } else {
       user.equipped[item.category] = itemId;
     }

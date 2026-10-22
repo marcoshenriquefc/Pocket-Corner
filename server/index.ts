@@ -1552,6 +1552,36 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     broadcastDirectory();
   });
 
+  socket.on('pet:set_variant', ({ petId, variantId }) => {
+    const res = store.setPetVariant(userId, petId, variantId);
+    const updated = store.getUserById(userId);
+    if (updated) socket.emit('auth:profile', updated);
+    socket.emit('system:toast', {
+      type: res.ok ? 'success' : 'error',
+      message: res.message,
+    });
+
+    const hostId = store.userCurrentRoom.get(userId) || userId;
+    broadcastRoomState(hostId);
+    if (hostId !== userId) broadcastRoomState(userId);
+    broadcastDirectory();
+  });
+
+  socket.on('pet:unequip', () => {
+    const res = store.unequipPet(userId);
+    const updated = store.getUserById(userId);
+    if (updated) socket.emit('auth:profile', updated);
+    socket.emit('system:toast', {
+      type: res.ok ? 'info' : 'error',
+      message: res.message,
+    });
+
+    const hostId = store.userCurrentRoom.get(userId) || userId;
+    broadcastRoomState(hostId);
+    if (hostId !== userId) broadcastRoomState(userId);
+    broadcastDirectory();
+  });
+
   socket.on('shop:buy', ({ itemId }) => {
     const res = store.buyItem(userId, itemId);
     const updated = store.getUserById(userId);

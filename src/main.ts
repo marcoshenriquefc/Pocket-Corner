@@ -4,8 +4,10 @@ import {
   COSMETIC_CATALOG,
   FURNITURE_COLOR_PALETTE,
   GACHAPON_COST_COINS,
+  PET_BREED_OPTIONS,
   REAL_MONEY_PACKAGES,
   getCosmeticById,
+  getPetBreedOption,
 } from './shared/catalog';
 import {
   ClientToServerEvents,
@@ -24,7 +26,7 @@ import {
   ShopPurchaseLogRecord,
   UserProfile,
 } from './shared/types';
-import { soundEngine } from './audio/soundEngine';
+import { AmbientSoundId, soundEngine } from './audio/soundEngine';
 import { getApiBaseUrl, windowBridge } from './bridge/windowBridge';
 import {
   PixelCanvasRenderer,
@@ -41,11 +43,12 @@ type ActiveModal =
   | 'ADMIN'
   | 'FURN_EDIT'
   | 'WORK_HUB';
-type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
+type ShopTab = 'APARENCIA' | 'PETS' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
 type ShopSubTab =
   | 'PIP'
   | 'CABECA'
   | 'COSTAS'
+  | 'PETS_COMPANION'
   | 'MOVEIS'
   | 'CENARIO'
   | 'BRINQUEDOS'
@@ -57,7 +60,7 @@ type ShopSubTab =
   | 'DIAMANTES_PACKS'
   | 'MOEDAS_PACKS';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
-type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
+type BackpackTab = 'AVATAR' | 'PETS' | 'FURNITURE' | 'FX';
 type AdminTab = 'TRANSACTIONS' | 'PURCHASES' | 'TEST_ITEMS';
 
 interface FocusTimerState {
@@ -614,7 +617,10 @@ class PocketCornerApp {
           </div>
         </div>
 
-        <!-- Dock Flutuante Minimalista: Apenas Loja, Amigos e Mochila -->
+        <!-- Nova Barra Flutuante de Sons Ambientes de Foco (Gratuitos + Volume Independente) -->
+        <div class="ambient-sound-bar" id="ambient-sound-bar"></div>
+
+        <!-- Dock Flutuante Minimalista: Loja, Pets, Amigos e Mochila -->
         <nav class="floating-dock" id="floating-dock"></nav>
       </div>
 
@@ -1700,6 +1706,8 @@ class PocketCornerApp {
   }
 
   private renderFloatingDock() {
+    this.renderAmbientSoundBar();
+
     const pendingFriends = this.profile?.pendingIncomingFriends?.length || 0;
     const visitorsInMyRoom =
       this.room && this.profile && this.room.hostUserId === this.profile.id
@@ -1707,10 +1715,17 @@ class PocketCornerApp {
         : 0;
     const badgeCount = pendingFriends + visitorsInMyRoom;
 
+    const isPetsShopActive = this.activeModal === 'SHOP' && this.shopTab === 'PETS';
+
     this.floatingDockEl.innerHTML = `
-      <button class="dock-btn ${this.activeModal === 'SHOP' ? 'active' : ''}" id="dock-btn-shop">
+      <button class="dock-btn ${this.activeModal === 'SHOP' && !isPetsShopActive ? 'active' : ''}" id="dock-btn-shop">
         <span>🛍️</span>
         <span>Loja</span>
+      </button>
+
+      <button class="dock-btn ${isPetsShopActive ? 'active' : ''}" id="dock-btn-pets" title="Pets para acompanhar seu Pip (Gato, Cachorro, Dragão Colossal, Dinossauro e mais)">
+        <span>🐾</span>
+        <span>Pets</span>
       </button>
 
       <button class="dock-btn ${this.activeModal === 'FRIENDS' ? 'active' : ''}" id="dock-btn-friends">
@@ -1726,13 +1741,107 @@ class PocketCornerApp {
     `;
 
     document.getElementById('dock-btn-shop')?.addEventListener('click', () => {
+      if (this.activeModal === 'SHOP' && this.shopTab === 'PETS') {
+        this.shopTab = 'APARENCIA';
+        this.shopSubTab = 'PIP';
+        this.renderShopPopup();
+        this.renderFloatingDock();
+        return;
+      }
       this.toggleModal('SHOP');
+    });
+    document.getElementById('dock-btn-pets')?.addEventListener('click', () => {
+      if (this.activeModal === 'SHOP' && this.shopTab === 'PETS') {
+        this.closeModal();
+        return;
+      }
+      this.shopTab = 'PETS';
+      this.shopSubTab = 'PETS_COMPANION';
+      this.openModal('SHOP');
     });
     document.getElementById('dock-btn-friends')?.addEventListener('click', () => {
       this.toggleModal('FRIENDS');
     });
     document.getElementById('dock-btn-backpack')?.addEventListener('click', () => {
       this.toggleModal('BACKPACK');
+    });
+  }
+
+  /**
+   * Nova Barra Flutuante de Sons Ambientes de Foco (Chuva, Lareira, Cafeteira, Teclado Mecânico e Ruído Marrom)
+   * Sintetizados via Web Audio API pura (sem arquivos pesados), 100% gratuitos e com volume independente!
+   */
+  private renderAmbientSoundBar() {
+    const barEl = document.getElementById('ambient-sound-bar');
+    if (!barEl) return;
+
+    const sounds: Array<{ id: AmbientSoundId; icon: string; label: string; hint: string }> = [
+      { id: 'rain', icon: '🌧️', label: 'Chuva', hint: 'Chuva suave na janela (Grátis)' },
+      { id: 'fireplace', icon: '🔥', label: 'Lareira', hint: 'Estalar aconchegante de lareira (Grátis)' },
+      { id: 'coffee', icon: '☕', label: 'Cafeteira', hint: 'Vapor e café passando na hora (Grátis)' },
+      { id: 'keyboard', icon: '⌨️', label: 'Teclado', hint: 'Teclado mecânico tátil ASMR (Grátis)' },
+      { id: 'brown_noise', icon: '🌊', label: 'Ruído Marrom', hint: 'Ruído Marrom profundo para concentração (Grátis)' },
+    ];
+
+    const activeIds = soundEngine.getActiveAmbientIds();
+    const volPercent = Math.round(soundEngine.ambientVolume * 100);
+
+    barEl.innerHTML = `
+      <span class="ambient-bar-title" title="Sons ambientes gerados em tempo real para foco — gratuitos e com volume independente dos efeitos sonoros!">
+        🎧 Foco:
+      </span>
+      <div class="ambient-bar-buttons">
+        ${sounds
+          .map((s) => {
+            const active = soundEngine.isAmbientActive(s.id);
+            return `
+              <button
+                class="ambient-chip ${active ? 'active' : ''}"
+                data-ambient-toggle="${s.id}"
+                title="${s.hint}"
+              >
+                <span>${s.icon}</span>
+                <span>${s.label}</span>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+      <div class="ambient-volume-wrap" title="Volume independente dos sons ambientes (${volPercent}%)">
+        <span style="font-size: 0.72rem;">🔉</span>
+        <input
+          type="range"
+          id="ambient-volume-slider"
+          class="ambient-volume-slider"
+          min="0"
+          max="100"
+          value="${volPercent}"
+        />
+        ${
+          activeIds.length > 0
+            ? `<button class="ambient-stop-btn" id="btn-ambient-stop-all" title="Parar todos os sons ambientes">⏹️</button>`
+            : ''
+        }
+      </div>
+    `;
+
+    barEl.querySelectorAll('[data-ambient-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.ambientToggle as AmbientSoundId;
+        soundEngine.toggleAmbientSound(id);
+        this.renderAmbientSoundBar();
+      });
+    });
+
+    const slider = document.getElementById('ambient-volume-slider') as HTMLInputElement | null;
+    slider?.addEventListener('input', (e) => {
+      const val = Number((e.target as HTMLInputElement).value);
+      soundEngine.setAmbientVolume(val / 100);
+    });
+
+    document.getElementById('btn-ambient-stop-all')?.addEventListener('click', () => {
+      soundEngine.stopAllAmbientSounds();
+      this.renderAmbientSoundBar();
     });
   }
 
@@ -2205,6 +2314,14 @@ class PocketCornerApp {
           description: 'Mude o seu personagem (raposa, pinguim, peixe, capivara, gato e mais)',
         },
         {
+          id: 'PETS_COMPANION',
+          icon: '🐶',
+          label: 'Pets Companheiros',
+          category: 'companion_pet',
+          description:
+            'Pets em Diamantes 💎 para caminhar ao lado do seu Pip! Personalize a raça de qualquer pet comprado (1 equipado por vez)',
+        },
+        {
           id: 'CABECA',
           icon: '🎧',
           label: 'Cabeça',
@@ -2217,6 +2334,16 @@ class PocketCornerApp {
           label: 'Costas',
           category: 'avatar_back',
           description: 'Asas, mochilas, capas e jetpacks equipados nas costas',
+        },
+      ],
+      PETS: [
+        {
+          id: 'PETS_COMPANION',
+          icon: '🐾',
+          label: 'Pets Companheiros (Raças Personalizáveis)',
+          category: 'companion_pet',
+          description:
+            'Escolha seu Pet companheiro (Gato, Cachorro, Dragão Colossal, Dinossauro e mais)! Todos incluem várias raças personalizáveis (1 equipado por vez).',
         },
       ],
       CANTINHO: [
@@ -2319,10 +2446,13 @@ class PocketCornerApp {
         </div>
       </div>
 
-      <!-- Abas Principais: Aparência | Meu Cantinho | Outros | Recargas & VIP -->
+      <!-- Abas Principais: Aparência | Pets | Meu Cantinho | Outros | Recargas & VIP -->
       <div class="popup-tabs">
         <button class="popup-tab ${this.shopTab === 'APARENCIA' ? 'active' : ''}" data-shop-tab="APARENCIA">
           ✨ Aparência
+        </button>
+        <button class="popup-tab ${this.shopTab === 'PETS' ? 'active' : ''}" data-shop-tab="PETS">
+          🐾 Pets
         </button>
         <button class="popup-tab ${this.shopTab === 'CANTINHO' ? 'active' : ''}" data-shop-tab="CANTINHO">
           🏠 Meu Cantinho
@@ -2358,8 +2488,15 @@ class PocketCornerApp {
 
       <div class="popup-body">
         <div class="shop-section-banner" title="${this.escapeHtml(activeSubMeta.description)}">
-          <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary);">
-            ${activeSubMeta.icon} ${activeSubMeta.label}
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span>${activeSubMeta.icon} ${activeSubMeta.label}</span>
+            ${
+              activeSubMeta.category === 'companion_pet' && this.profile.equipped.companion_pet
+                ? `<button class="btn btn-sm btn-danger" data-unequip-pet="1" title="Guardar o pet atual na mochila">
+                    📦 Guardar Pet Atual
+                  </button>`
+                : ''
+            }
           </div>
           ${
             activeSubMeta.category
@@ -2402,18 +2539,21 @@ class PocketCornerApp {
       this.shopTab = 'DIAMANTES';
       this.shopSubTab = 'MOEDAS_PACKS';
       this.renderShopPopup();
+      this.renderFloatingDock();
     });
 
     document.getElementById('shop-gems-pill')?.addEventListener('click', () => {
       this.shopTab = 'DIAMANTES';
       this.shopSubTab = 'DIAMANTES_PACKS';
       this.renderShopPopup();
+      this.renderFloatingDock();
     });
 
     document.getElementById('btn-shop-goto-gems')?.addEventListener('click', () => {
       this.shopTab = 'DIAMANTES';
       this.shopSubTab = 'DIAMANTES_PACKS';
       this.renderShopPopup();
+      this.renderFloatingDock();
     });
 
     document.getElementById('btn-roll-gachapon')?.addEventListener('click', () => {
@@ -2429,6 +2569,7 @@ class PocketCornerApp {
           const bodyEl = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
           if (bodyEl) bodyEl.scrollTop = 0;
           this.renderShopPopup();
+          this.renderFloatingDock();
         }
       });
     });
@@ -3147,13 +3288,14 @@ class PocketCornerApp {
   }
 
   // ------------------------------------------
-  // 3. POPUP "🎒 MOCHILA" (Preview do Pocket Player + Abas de Personalização e Móveis)
+  // 3. POPUP "🎒 MOCHILA" (Preview do Pocket Player + Abas de Personalização, Pets e Móveis)
   // ------------------------------------------
   private renderBackpackPopup() {
     if (!this.profile) return;
 
     const categoryGroups: Record<BackpackTab, CosmeticCategory[]> = {
       AVATAR: ['avatar_body', 'avatar_head', 'avatar_back'],
+      PETS: ['companion_pet'],
       FURNITURE: ['furniture', 'room_skin'],
       FX: ['spawn_fx', 'chat_skin', 'throwable', 'desk_drop'],
     };
@@ -3163,6 +3305,10 @@ class PocketCornerApp {
         this.profile!.inventory.includes(item.id) &&
         categoryGroups[this.backpackTab].includes(item.category)
     );
+
+    const ownedPetsCount = COSMETIC_CATALOG.filter(
+      (item) => item.category === 'companion_pet' && this.profile!.inventory.includes(item.id)
+    ).length;
 
     const placedList = this.room?.placedFurniture || this.profile.placedFurniture || [];
 
@@ -3178,6 +3324,9 @@ class PocketCornerApp {
           <div class="popup-tabs">
             <button class="popup-tab ${this.backpackTab === 'AVATAR' ? 'active' : ''}" data-bp-tab="AVATAR">
               👕 Meu Visual
+            </button>
+            <button class="popup-tab ${this.backpackTab === 'PETS' ? 'active' : ''}" data-bp-tab="PETS">
+              🐾 Meus Pets (${ownedPetsCount})
             </button>
             <button class="popup-tab ${this.backpackTab === 'FURNITURE' ? 'active' : ''}" data-bp-tab="FURNITURE">
               🛋️ Móveis & Cenário (${placedList.length}/10)
@@ -3200,13 +3349,34 @@ class PocketCornerApp {
                 <button class="btn btn-sm" id="btn-preview-spawn" style="width: 100%; justify-content: center;">
                   ⚡ Testar Entrada
                 </button>
+                ${
+                  this.profile.equipped.companion_pet
+                    ? `<button class="btn btn-sm btn-danger" data-unequip-pet="1" style="width: 100%; justify-content: center;">
+                        📦 Guardar Pet Atual
+                      </button>`
+                    : ''
+                }
               </div>
 
               <!-- Conteúdo da Aba Selecionada -->
               <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-                <div class="items-grid">
-                  ${ownedItems.map((item) => this.renderCatalogItemCard(item)).join('')}
-                </div>
+                ${
+                  ownedItems.length === 0 && this.backpackTab === 'PETS'
+                    ? `
+                      <div class="empty-hint" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 14px;">
+                        <div style="font-size: 2rem;">🐾</div>
+                        <div>Você ainda não adotou nenhum Pet companheiro!</div>
+                        <button class="btn btn-sm btn-gold" id="btn-bp-goto-pets-shop">
+                          🛍️ Ver Pets na Loja (💎)
+                        </button>
+                      </div>
+                    `
+                    : `
+                      <div class="items-grid">
+                        ${ownedItems.map((item) => this.renderCatalogItemCard(item)).join('')}
+                      </div>
+                    `
+                }
 
                 ${
                   this.backpackTab === 'FURNITURE' && placedList.length > 0
@@ -3280,6 +3450,12 @@ class PocketCornerApp {
       this.renderer.triggerPreviewSpawnFx();
     });
 
+    document.getElementById('btn-bp-goto-pets-shop')?.addEventListener('click', () => {
+      this.shopTab = 'PETS';
+      this.shopSubTab = 'PETS_COMPANION';
+      this.openModal('SHOP');
+    });
+
     this.modalRootEl.querySelectorAll('[data-bp-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.backpackTab = (btn as HTMLElement).dataset.bpTab as BackpackTab;
@@ -3328,6 +3504,7 @@ class PocketCornerApp {
     const owned = this.profile!.inventory.includes(item.id);
     const isAdmin = Boolean(this.profile?.isAdmin);
     const isFurniture = item.category === 'furniture';
+    const isPet = item.category === 'companion_pet';
     const isEquipped =
       item.category !== 'furniture' &&
       this.profile!.equipped[item.category] === item.id;
@@ -3345,6 +3522,84 @@ class PocketCornerApp {
     const adminPriceTag = isAdmin
       ? `<span class="rarity-badge" style="background: rgba(250, 204, 21, 0.14); color: var(--accent-gold); border: 1px solid rgba(250, 204, 21, 0.35);" title="Valor configurado no catálogo (visível para validação do Admin)">${this.getItemPriceLabel(item)}</span>`
       : '';
+
+    if (isPet) {
+      const breeds = PET_BREED_OPTIONS[item.id] || [];
+      const activeBreedId =
+        this.profile!.petVariants?.[item.id] ||
+        (isEquipped ? this.profile!.equipped.companion_pet_variant : undefined) ||
+        getPetBreedOption(item.id).id;
+      const isDragon = item.id === 'pet_dragon';
+
+      return `
+        <div
+          class="item-card pet-item-card ${isEquipped ? 'equipped' : ''}"
+          title="${this.escapeHtml(item.description)}"
+          style="flex-direction: column; align-items: stretch; gap: 8px; ${isDragon ? 'border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.06);' : ''}"
+        >
+          <div style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+              <div class="item-icon" style="font-size: ${isDragon ? '1.75rem' : '1.45rem'};">${item.icon}</div>
+              <div class="item-info">
+                <div class="item-name">
+                  ${this.escapeHtml(item.name)}
+                  <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
+                  ${
+                    isDragon
+                      ? `<span class="rarity-badge rarity-LEGENDARY" title="Maior que os outros pets e maior que o próprio Pip!">🐉 COLOSSAL</span>`
+                      : ''
+                  }
+                  ${adminPriceTag}
+                </div>
+                <div class="item-sub">
+                  🧬 ${breeds.length} raças personalizáveis • 1 pet equipado por vez
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              ${
+                owned
+                  ? isEquipped
+                    ? `
+                      <span class="btn btn-sm active-toggle">✓ Equipado</span>
+                      <button class="btn btn-sm btn-danger" data-unequip-pet="1" title="Guardar Pet">📦</button>
+                    `
+                    : `<button class="btn btn-sm btn-primary" data-equip-item="${item.id}">🐾 Equipar</button>`
+                  : `<button class="btn btn-sm btn-gold" data-buy-item="${item.id}">
+                      ${item.price} 💎
+                    </button>`
+              }
+            </div>
+          </div>
+
+          <div class="pet-breed-selector-row">
+            <span class="pet-breed-label">🧬 Raça:</span>
+            <div class="pet-breed-chips">
+              ${breeds
+                .map((breed) => {
+                  const selected = activeBreedId === breed.id;
+                  return `
+                    <button
+                      class="pet-breed-chip ${selected ? 'active' : ''}"
+                      ${
+                        owned
+                          ? `data-pet-breed-pet="${item.id}" data-pet-breed-val="${breed.id}"`
+                          : `disabled title="Compre este pet (${item.price} 💎) para escolher a raça ${this.escapeHtml(breed.name)}"`
+                      }
+                    >
+                      <span class="pet-breed-dot" style="background: ${breed.primaryColor}; border-color: ${breed.secondaryColor};"></span>
+                      <span>${this.escapeHtml(breed.name)}</span>
+                    </button>
+                  `;
+                })
+                .join('')}
+            </div>
+          </div>
+
+          <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
+        </div>
+      `;
+    }
 
     return `
       <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
@@ -3508,6 +3763,21 @@ class PocketCornerApp {
       btn.addEventListener('click', () => {
         const itemId = (btn as HTMLElement).dataset.equipItem!;
         this.socket.emit('inventory:equip', { itemId });
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-pet-breed-pet]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const el = btn as HTMLElement;
+        const petId = el.dataset.petBreedPet!;
+        const variantId = el.dataset.petBreedVal!;
+        this.socket.emit('pet:set_variant', { petId, variantId });
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-unequip-pet]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.socket.emit('pet:unequip');
       });
     });
 

@@ -1,4 +1,4 @@
-import { getCosmeticById, getFurnitureColorOption } from '../shared/catalog';
+import { getCosmeticById, getFurnitureColorOption, getPetBreedOption } from '../shared/catalog';
 import {
   DeskDropInstance,
   IdleActivity,
@@ -2742,6 +2742,11 @@ export class PixelCanvasRenderer {
     const avatarScale = 1.38;
     const dir = p.facing === 'right' ? 1 : -1;
 
+    // 0. Companion Pet (acompanha o Pip ao lado; o Dragão Guardião é maior que os outros pets e maior que o Pip!)
+    if (p.equipped.companion_pet) {
+      this.drawCompanionPet(ctx, p, x, floorY, dir, walkBob);
+    }
+
     // Shadow on floor
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.fillRect(x - 13, floorY - 2, 26, 4);
@@ -3299,6 +3304,423 @@ export class PixelCanvasRenderer {
     ctx.restore();
   }
 
+  private drawCompanionPet(
+    ctx: CanvasRenderingContext2D,
+    p: RoomPlayerState,
+    playerX: number,
+    floorY: number,
+    dir: number,
+    walkBob: number
+  ) {
+    const petId = p.equipped.companion_pet;
+    if (!petId) return;
+
+    const breed = getPetBreedOption(petId, p.equipped.companion_pet_variant);
+    const isDragon = petId === 'pet_dragon';
+
+    // Posiciona o pet fielmente ao lado/atrás do Pip, mantendo dentro dos limites do palco
+    const offsetDist = isDragon ? 32 : 22;
+    let petX = playerX - dir * offsetDist;
+    if (petX < 20) petX = playerX + offsetDist;
+    if (petX > 340) petX = playerX - offsetDist;
+
+    const bob = walkBob > 0 ? Math.round(Math.abs(Math.sin(this.tick * 0.22)) * 2) : 0;
+    const breath = Math.round(Math.sin(this.tick * 0.1) * 1);
+    const tailWag = Math.round(Math.sin(this.tick * 0.2) * 2);
+
+    ctx.save();
+
+    if (isDragon) {
+      // 🐉 DRAGÃO GUARDIÃO ANCESTRAL: MAIOR QUE OS OUTROS PETS E MAIOR QUE O PRÓPRIO PIP!
+      // Pip tem ~38px de altura renderizada; o Dragão tem ~54px de altura e asas imponentes!
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+      ctx.fillRect(petX - 20, floorY - 3, 40, 5);
+
+      ctx.translate(petX, floorY - bob);
+      ctx.scale(dir, 1);
+
+      const wingFlap = Math.round(Math.sin(this.tick * 0.16) * 4);
+
+      // Cauda longa escamosa com ponta de lança flamejante
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-26, -14 + tailWag, 14, 6);
+      ctx.fillRect(-32, -19 + tailWag, 8, 6);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-36, -22 + tailWag, 6, 6);
+
+      // Asas Colossais abertas (maiores que o Pip!)
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-22, -46 + wingFlap, 18, 22);
+      ctx.fillRect(-28, -52 + wingFlap, 14, 14);
+      // Membrana interna da asa
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-19, -42 + wingFlap, 13, 16);
+      ctx.fillRect(-25, -48 + wingFlap, 9, 9);
+      // Garras douradas no topo da asa
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-28, -54 + wingFlap, 4, 3);
+
+      // Corpo robusto de Dragão Guardião (peito couraçado e barriga escamosa)
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-13, -34 + breath, 24, 28);
+      // Placas peitorais da linhagem
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-5, -31 + breath, 14, 22);
+      ctx.fillStyle = breed.primaryColor;
+      for (let py = -28; py <= -14; py += 5) {
+        ctx.fillRect(-4, py + breath, 12, 1);
+      }
+
+      // Espinhos dorsais ao longo das costas
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-15, -32 + breath, 3, 4);
+      ctx.fillRect(-15, -25 + breath, 3, 4);
+      ctx.fillRect(-15, -18 + breath, 3, 4);
+
+      // Pescoço e Cabeça Majestosa no alto (-52px acima do chão!)
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-8, -48 + breath, 22, 16);
+      // Focinho longo de dragão com presas
+      ctx.fillRect(10, -44 + breath, 10, 10);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(13, -34 + breath, 2, 3);
+      ctx.fillRect(17, -34 + breath, 2, 3);
+
+      // Chifres Imperiais curvados para trás
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-10, -56 + breath, 6, 8);
+      ctx.fillRect(-14, -60 + breath, 6, 6);
+      ctx.fillRect(-2, -55 + breath, 5, 7);
+
+      // Olho dracônico brilhante
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(4, -44 + breath, 5, 4);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(6, -44 + breath, 2, 4);
+
+      // Braços com garras afiadas
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(6, -24 + breath, 8, 5);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(13, -23 + breath, 3, 3);
+
+      // Patas traseiras fortes no chão
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-10, -7, 9, 7);
+      ctx.fillRect(2, -7, 9, 7);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-2, -3, 3, 3);
+      ctx.fillRect(10, -3, 3, 3);
+
+      // Sopro elemental animado saindo das narinas
+      const flamePhase = (this.tick >> 2) % 4;
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(21 + flamePhase * 2, -42 + breath, 5, 4);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(25 + flamePhase * 3, -44 + breath, 3, 3);
+
+      ctx.restore();
+      return;
+    }
+
+    // Sombra padrão para os outros 8 pets companheiros
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(petX - 9, floorY - 2, 18, 3);
+
+    ctx.translate(petX, floorY - bob);
+    ctx.scale(dir, 1);
+
+    if (petId === 'pet_cat') {
+      // 🐱 Gatinho Companheiro (Siamês, Laranja, Pretinho, Persa, Frajola, Tricolor)
+      // Rabinho levantado em curva
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-10, -13 + tailWag, 3, 8);
+      ctx.fillRect(-12, -16 + tailWag, 3, 4);
+      // Corpo
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -11, 14, 8);
+      // Manchinhas se for Tricolor ou Laranja Tigrado ou Frajola
+      if (breed.id === 'calico') {
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(-5, -11, 5, 4);
+        ctx.fillStyle = breed.accentColor;
+        ctx.fillRect(1, -10, 4, 4);
+      } else if (breed.id === 'tuxedo') {
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(2, -9, 5, 5);
+      } else if (breed.id === 'orange') {
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(-4, -11, 2, 5);
+        ctx.fillRect(0, -11, 2, 5);
+      }
+      // Cabeça e orelhas pontudas
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-3, -18, 11, 9);
+      ctx.fillStyle = breed.id === 'siamese' ? breed.secondaryColor : breed.primaryColor;
+      ctx.fillRect(-3, -21, 3, 3);
+      ctx.fillRect(5, -21, 3, 3);
+      if (breed.id === 'siamese') {
+        // Máscara escura típica do Siamês
+        ctx.fillRect(1, -15, 7, 5);
+      }
+      // Coleira na cor de destaque
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-2, -10, 9, 2);
+      // Olhinhos brilhantes
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(1, -15, 2, 2);
+      ctx.fillRect(5, -15, 2, 2);
+      // Patinhas
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-6, -3, 3, 3);
+      ctx.fillRect(3, -3, 3, 3);
+    } else if (petId === 'pet_dog') {
+      // 🐶 Cachorrinho Fiel (Caramelo, Golden, Husky, Pug, Shiba, Dálmata)
+      // Rabinho abanando rápido
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-11, -12 + tailWag, 4, 4);
+      // Corpo
+      ctx.fillRect(-8, -12, 15, 9);
+      // Barriga / peito secundário
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-2, -9, 9, 5);
+      if (breed.id === 'dalmatian') {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(-6, -11, 2, 2);
+        ctx.fillRect(-1, -10, 2, 2);
+        ctx.fillRect(2, -7, 2, 2);
+      }
+      // Cabeça e focinho
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-2, -19, 11, 9);
+      ctx.fillStyle = breed.id === 'pug' ? '#292524' : breed.secondaryColor;
+      ctx.fillRect(7, -15, 4, 5);
+      // Orelhas (caidinhas ou em pé para Husky/Shiba)
+      ctx.fillStyle = breed.secondaryColor;
+      if (breed.id === 'husky' || breed.id === 'shiba') {
+        ctx.fillRect(-1, -22, 3, 3);
+        ctx.fillRect(5, -22, 3, 3);
+      } else {
+        ctx.fillRect(-3, -18, 3, 6);
+      }
+      // Coleira
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-2, -11, 10, 2);
+      // Olhos e nariz
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(3, -16, 2, 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(9, -15, 2, 2);
+      // Patas
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -3, 3, 3);
+      ctx.fillRect(3, -3, 3, 3);
+    } else if (petId === 'pet_dino') {
+      // 🦖 Dinossauro Pré-Histórico (T-Rex, Triceratops, Velociraptor, Estegossauro, Albino)
+      // Cauda grossa de dinossauro
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-14, -11 + tailWag, 7, 5);
+      ctx.fillRect(-18, -9 + tailWag, 4, 3);
+      // Corpo e barriga
+      ctx.fillRect(-8, -16, 15, 13);
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-2, -13, 9, 9);
+      // Placas dorsais / Crista (destaque especial para Estegossauro e Triceratops)
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-10, -18, 3, 3);
+      ctx.fillRect(-10, -13, 3, 3);
+      // Cabeça grande jurássica e mandíbula
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-3, -24, 14, 10);
+      if (breed.id === 'triceratops_blue') {
+        // Escudo e 3 chifres brancos de Triceratops
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(-6, -27, 6, 11);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(9, -23, 5, 2);
+        ctx.fillRect(11, -18, 3, 2);
+      } else {
+        // Dentes afiados de T-Rex / Raptor
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(6, -14, 2, 2);
+        ctx.fillRect(9, -14, 2, 2);
+      }
+      // Olho reptiliano
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(4, -21, 3, 3);
+      // Bracinhos curtos de T-Rex
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(7, -12, 4, 2);
+      // Patas fortes
+      ctx.fillRect(-6, -3, 4, 3);
+      ctx.fillRect(2, -3, 4, 3);
+    } else if (petId === 'pet_fox') {
+      // 🦊 Raposinha Astuta (Vermelha, Ártica, Fennec, Prateada, Kitsune)
+      // Rabo super felpudo bicolor
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-14, -12 + tailWag, 7, 6);
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-17, -11 + tailWag, 4, 4);
+      // Corpo e peito branco macio
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -11, 14, 8);
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(1, -10, 6, 6);
+      // Cabeça e orelhas grandes (ainda maiores na Fennec!)
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-2, -18, 11, 8);
+      const earH = breed.id === 'fennec_fox' ? 6 : 4;
+      ctx.fillRect(-2, -18 - earH, 3, earH);
+      ctx.fillRect(5, -18 - earH, 3, earH);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-2, -18 - earH, 2, 2);
+      ctx.fillRect(6, -18 - earH, 2, 2);
+      // Olhos e focinho
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(3, -15, 2, 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(9, -14, 2, 2);
+      // Patinhas escuras
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-6, -3, 3, 3);
+      ctx.fillRect(3, -3, 3, 3);
+    } else if (petId === 'pet_bunny') {
+      // 🐰 Coelhinho Saltitante (Neve, Lop Caramelo, Holandês, Chinchila, Rosa)
+      const hopY = walkBob > 0 ? -2 : 0;
+      // Pompom do rabinho
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-10, -8 + hopY, 4, 4);
+      // Corpo arredondado
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -11 + hopY, 13, 9);
+      if (breed.id === 'dutch_panda') {
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(-2, -11 + hopY, 5, 8);
+      }
+      // Cabeça e orelhas compridas (caídas no Lop Caramelo!)
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-2, -17 + hopY, 10, 8);
+      if (breed.id === 'caramel_lop') {
+        ctx.fillRect(-3, -16 + hopY, 3, 8);
+      } else {
+        ctx.fillRect(0, -25 + hopY, 3, 8);
+        ctx.fillRect(4, -25 + hopY, 3, 8);
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(1, -23 + hopY, 1, 5);
+        ctx.fillRect(5, -23 + hopY, 1, 5);
+      }
+      // Olho e narizinho rosado
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(4, -14 + hopY, 2, 2);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(7, -13 + hopY, 2, 2);
+      // Pézinhos
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-5, -2, 4, 2);
+      ctx.fillRect(2, -2, 4, 2);
+    } else if (petId === 'pet_owl') {
+      // 🦉 Corujinha Sábia (Neves, Buraqueira, Real Dourada, Cósmica)
+      const wingFlap = Math.round(Math.sin(this.tick * 0.18) * 2);
+      // Corpo rechonchudo emplumado
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -16, 14, 13);
+      // Peito rajado
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-4, -12, 9, 8);
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-2, -10, 2, 2);
+      ctx.fillRect(2, -10, 2, 2);
+      ctx.fillRect(0, -7, 2, 2);
+      // Asinha lateral batendo
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-8, -13 + wingFlap, 4, 7);
+      // Penachos de coruja no topo
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(-6, -19, 3, 3);
+      ctx.fillRect(4, -19, 3, 3);
+      // Olhos grandes redondos de coruja + bico
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(-3, -15, 3, 3);
+      ctx.fillRect(3, -15, 3, 3);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-2, -14, 1, 2);
+      ctx.fillRect(4, -14, 1, 2);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(0, -13, 3, 2);
+      // Garrinhas
+      ctx.fillRect(-4, -3, 3, 3);
+      ctx.fillRect(2, -3, 3, 3);
+    } else if (petId === 'pet_capybara') {
+      // 🦫 Capivara Zen (Clássica com Laranja, Termas Onsen, Dourada, Chocolate)
+      // Corpo retangular super tranquilo de capivara
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-9, -12, 17, 9);
+      // Cabeça quadradinha clássica de capivara
+      ctx.fillRect(-1, -17, 12, 9);
+      // Focinho escuro e orelhinha arredondada
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(7, -16, 4, 6);
+      ctx.fillRect(0, -19, 3, 2);
+      // Olhinho calmo semicerrado ("-")
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(3, -14, 3, 1);
+      // Tangerina / Laranja ou Toalhinha de Onsen equilibrada na cabeça!
+      if (breed.id === 'onsen_towel') {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(1, -20, 7, 3);
+      } else {
+        ctx.fillStyle = '#f97316';
+        ctx.fillRect(3, -21, 4, 4);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(4, -22, 2, 1);
+      }
+      // Patinhas curtas
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-7, -3, 3, 3);
+      ctx.fillRect(-2, -3, 3, 3);
+      ctx.fillRect(4, -3, 3, 3);
+    } else if (petId === 'pet_panda') {
+      // 🐼 Ursinho Companheiro (Panda Gigante, Panda Vermelho, Urso Polar, Pardo, Sakura)
+      // Rabinho (anelado longo se for Panda Vermelho, ou pompom para os outros)
+      if (breed.id === 'red_panda') {
+        ctx.fillStyle = breed.primaryColor;
+        ctx.fillRect(-14, -11 + tailWag, 7, 5);
+        ctx.fillStyle = breed.accentColor;
+        ctx.fillRect(-12, -11 + tailWag, 2, 5);
+      } else {
+        ctx.fillStyle = breed.secondaryColor;
+        ctx.fillRect(-9, -9, 3, 3);
+      }
+      // Corpo fofinho
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-7, -12, 14, 9);
+      // Faixa peitoral / ombros do Panda
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-4, -12, 6, 4);
+      // Cabeça redonda e orelhinhas redondas
+      ctx.fillStyle = breed.primaryColor;
+      ctx.fillRect(-3, -19, 11, 9);
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-4, -21, 3, 3);
+      ctx.fillRect(5, -21, 3, 3);
+      // Manchas nos olhos do Panda + olhinhos
+      ctx.fillRect(0, -16, 3, 3);
+      ctx.fillRect(5, -16, 3, 3);
+      ctx.fillStyle = breed.eyeColor;
+      ctx.fillRect(1, -15, 1, 1);
+      ctx.fillRect(6, -15, 1, 1);
+      // Bambu ou florzinha na boca
+      ctx.fillStyle = breed.accentColor;
+      ctx.fillRect(8, -13, 3, 2);
+      // Patinhas
+      ctx.fillStyle = breed.secondaryColor;
+      ctx.fillRect(-6, -3, 3, 3);
+      ctx.fillRect(3, -3, 3, 3);
+    }
+
+    ctx.restore();
+  }
+
   private drawIdleProp(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -3505,6 +3927,7 @@ export class PixelCanvasRenderer {
     username: string;
     displayName: string;
     equipped: RoomPlayerState['equipped'];
+    petVariants?: Record<string, string>;
   }) {
     if (!this.previewCanvas) return;
     const ctx = this.previewCanvas.getContext('2d');
@@ -3518,6 +3941,7 @@ export class PixelCanvasRenderer {
     this.drawRoomBackground(ctx, profile.equipped.room_skin || 'room_cozy_desk', W, H, floorY);
     this.drawFloorStrip(ctx, profile.equipped.room_skin || 'room_cozy_desk', W, H, floorY);
 
+    const petId = profile.equipped.companion_pet;
     const mockPlayer: RoomPlayerState = {
       userId: '__preview__',
       username: profile.username,
@@ -3528,7 +3952,12 @@ export class PixelCanvasRenderer {
       facing: Math.floor(this.tick / 90) % 2 === 0 ? 'right' : 'left',
       hostStatus: 'ACTIVE',
       idleActivity: 'COFFEE',
-      equipped: profile.equipped,
+      equipped: {
+        ...profile.equipped,
+        companion_pet_variant: petId
+          ? profile.petVariants?.[petId] || profile.equipped.companion_pet_variant
+          : undefined,
+      },
       spawnFx:
         this.previewSpawnStartedAt > 0
           ? {
