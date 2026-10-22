@@ -148,6 +148,7 @@ class PocketCornerApp {
 
   private selectedTargetUserId: string | null = null;
   private editingFurnitureInstanceId: string | null = null;
+  private manualActionSelected = false;
   private autoIdleOnBlur = true;
   private previewAnimId = 0;
   private pendingVisitParam: string | null = null;
@@ -442,6 +443,44 @@ class PocketCornerApp {
                 placeholder="💬 Escreva algo para falar... (Enter)"
               />
               <div class="quick-actions-group">
+                <!-- Botão com Mini Menu Flutuante ao passar o mouse (Ações do Pip) -->
+                <div class="action-hover-menu-wrap" id="action-hover-menu-wrap">
+                  <button class="btn btn-icon" id="btn-quick-actions" title="Ações do Pip (Passe o mouse para escolher: Café, Pescar, Computador e mais)">
+                    🎭
+                  </button>
+                  <div class="action-hover-dropdown" id="action-hover-dropdown">
+                    <div class="action-hover-title">🎬 Ações do Pip</div>
+                    <button class="action-hover-item" data-pip-action="COFFEE">
+                      <span>☕</span>
+                      <span>Andar com Café</span>
+                    </button>
+                    <button class="action-hover-item" data-pip-action="FISHING">
+                      <span>🎣</span>
+                      <span>Pescar</span>
+                    </button>
+                    <button class="action-hover-item" data-pip-action="TYPING">
+                      <span>💻</span>
+                      <span>Andar com Computador</span>
+                    </button>
+                    <button class="action-hover-item" data-pip-action="READING">
+                      <span>📖</span>
+                      <span>Andar com Livro</span>
+                    </button>
+                    <button class="action-hover-item" data-pip-action="SLEEPING">
+                      <span>💤</span>
+                      <span>Cochilar (Zzz)</span>
+                    </button>
+                    <div class="action-hover-divider"></div>
+                    <button class="action-hover-item active" data-pip-action="ACTIVE">
+                      <span>🚶</span>
+                      <span>Livre (Sem Ação)</span>
+                    </button>
+                    <button class="action-hover-item" data-pip-action="DND">
+                      <span>🔒</span>
+                      <span>Não Perturbe (DND)</span>
+                    </button>
+                  </div>
+                </div>
                 <button class="btn btn-icon" id="btn-quick-poke" title="Cutucar amigo (Poke)">👆</button>
                 <button class="btn btn-icon" id="btn-quick-throw" title="Jogar brinquedo">✈️</button>
                 <button class="btn btn-icon" id="btn-quick-gift" title="Deixar presente no chão">☕</button>
@@ -532,6 +571,25 @@ class PocketCornerApp {
       }
     });
 
+    document.querySelectorAll('[data-pip-action]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const act = (btn as HTMLElement).dataset.pipAction!;
+        if (act === 'ACTIVE') {
+          this.manualActionSelected = false;
+          this.socket.emit('host:set_status', { status: 'ACTIVE' });
+        } else if (act === 'DND') {
+          this.manualActionSelected = false;
+          this.socket.emit('host:set_status', { status: 'DND' });
+        } else {
+          this.manualActionSelected = true;
+          this.socket.emit('host:set_status', {
+            status: 'IDLE',
+            idleActivity: act as IdleActivity,
+          });
+        }
+      });
+    });
+
     document.getElementById('btn-quick-poke')!.addEventListener('click', () => {
       this.socket.emit('player:interact', {
         targetUserId: this.getEffectiveTargetUserId(),
@@ -576,6 +634,33 @@ class PocketCornerApp {
     });
 
     this.renderFloatingDock();
+  }
+
+  private updateQuickActionsMenuState() {
+    const me = this.room?.players.find((p) => p.userId === this.profile?.id);
+    const status = me?.hostStatus || this.profile?.hostStatus || 'ACTIVE';
+    const idleAct = me?.idleActivity || 'COFFEE';
+    const currentKey = status === 'IDLE' ? idleAct : status;
+
+    const iconMap: Record<string, string> = {
+      COFFEE: '☕',
+      FISHING: '🎣',
+      TYPING: '💻',
+      READING: '📖',
+      SLEEPING: '💤',
+      DND: '🔒',
+      ACTIVE: '🎭',
+    };
+
+    const btnEl = document.getElementById('btn-quick-actions');
+    if (btnEl) {
+      btnEl.textContent = iconMap[currentKey] || '🎭';
+    }
+
+    document.querySelectorAll('[data-pip-action]').forEach((itemEl) => {
+      const el = itemEl as HTMLElement;
+      el.classList.toggle('active', el.dataset.pipAction === currentKey);
+    });
   }
 
   private getEffectiveTargetUserId(): string {
@@ -644,6 +729,7 @@ class PocketCornerApp {
       this.renderer.setIdentity(profile.id);
       this.renderTopbar();
       this.renderFloatingDock();
+      this.updateQuickActionsMenuState();
 
       // Atualiza saldo na Loja sem piscar/recriar o popup quando for apenas tick passivo de moedas
       const shopCoinsEl = document.getElementById('shop-coins-pill');
@@ -677,6 +763,7 @@ class PocketCornerApp {
       this.renderTopbar();
       this.renderKnockBanner();
       this.renderFloatingDock();
+      this.updateQuickActionsMenuState();
 
       if (this.activeModal === 'FRIENDS' && prevPlayersLen !== nextPlayersLen) {
         this.renderActiveModal();
@@ -792,14 +879,14 @@ class PocketCornerApp {
     });
 
     window.addEventListener('blur', () => {
-      if (!this.autoIdleOnBlur || !this.profile) return;
+      if (!this.autoIdleOnBlur || !this.profile || this.manualActionSelected) return;
       if (this.profile.hostStatus === 'ACTIVE') {
         this.socket.emit('host:set_status', { status: 'IDLE' });
       }
     });
 
     window.addEventListener('focus', () => {
-      if (!this.autoIdleOnBlur || !this.profile) return;
+      if (!this.autoIdleOnBlur || !this.profile || this.manualActionSelected) return;
       if (this.profile.hostStatus === 'IDLE') {
         this.socket.emit('host:set_status', { status: 'ACTIVE' });
       }
@@ -1716,9 +1803,11 @@ class PocketCornerApp {
                             <div class="item-sub">Escolha como seu avatar aparece na sala</div>
                           </div>
                           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                            <button class="btn btn-sm ${this.profile.hostStatus === 'ACTIVE' ? 'active-toggle' : ''}" data-status="ACTIVE">🟢 Ativo</button>
-                            <button class="btn btn-sm ${this.profile.hostStatus === 'IDLE' ? 'active-toggle' : ''}" data-idle="COFFEE">☕ Café</button>
-                            <button class="btn btn-sm" data-idle="TYPING">⌨️ Digitar</button>
+                            <button class="btn btn-sm ${this.profile.hostStatus === 'ACTIVE' ? 'active-toggle' : ''}" data-status="ACTIVE">🚶 Livre</button>
+                            <button class="btn btn-sm" data-idle="COFFEE">☕ Café</button>
+                            <button class="btn btn-sm" data-idle="FISHING">🎣 Pescar</button>
+                            <button class="btn btn-sm" data-idle="TYPING">💻 Computador</button>
+                            <button class="btn btn-sm" data-idle="READING">📖 Livro</button>
                             <button class="btn btn-sm" data-idle="SLEEPING">💤 Cochilar</button>
                             <button class="btn btn-sm ${this.profile.hostStatus === 'DND' ? 'active-toggle' : ''}" data-status="DND">🔒 DND</button>
                           </div>
@@ -1885,6 +1974,7 @@ class PocketCornerApp {
     this.modalRootEl.querySelectorAll('[data-status]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const status = (btn as HTMLElement).dataset.status as HostStatus;
+        this.manualActionSelected = false;
         this.socket.emit('host:set_status', { status });
       });
     });
@@ -1892,6 +1982,7 @@ class PocketCornerApp {
     this.modalRootEl.querySelectorAll('[data-idle]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const idleActivity = (btn as HTMLElement).dataset.idle as IdleActivity;
+        this.manualActionSelected = true;
         this.socket.emit('host:set_status', { status: 'IDLE', idleActivity });
       });
     });

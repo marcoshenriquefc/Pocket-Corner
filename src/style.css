@@ -250,6 +250,97 @@ body {
   gap: 4px;
 }
 
+/* Mini Menu Flutuante de Ações do Pip (abre ao passar o mouse) */
+.action-hover-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.action-hover-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 196px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.68);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px) scale(0.97);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  z-index: 250;
+  pointer-events: none;
+}
+
+/* Ponte invisível para o mouse transitar do botão até o menu sem fechar */
+.action-hover-dropdown::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -12px;
+  height: 12px;
+}
+
+.action-hover-menu-wrap:hover .action-hover-dropdown,
+.action-hover-menu-wrap.open .action-hover-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.action-hover-title {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-gold);
+  padding: 4px 8px 3px;
+}
+
+.action-hover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.action-hover-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.action-hover-item.active {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #fff;
+}
+
+.action-hover-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 3px 4px;
+}
+
 /* ==========================================
    Dock Flutuante Principal (Loja • Amigos • Mochila)
    ========================================== */

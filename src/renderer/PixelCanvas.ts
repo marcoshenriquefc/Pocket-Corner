@@ -2397,8 +2397,8 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-1, baseTop - 8, 2, 2);
     }
 
-    // 4. Host IDLE Animations
-    if (p.hostStatus === 'IDLE' && Math.abs((phys?.renderX || p.x) - p.targetX) < 2) {
+    // 4. Player Action & Idle Props (permanecem visíveis mesmo andando!)
+    if (p.hostStatus === 'IDLE' && p.idleActivity) {
       this.drawIdleProp(ctx, 0, baseTop, dir, p.idleActivity);
     }
 
@@ -2440,18 +2440,52 @@ export class PixelCanvasRenderer {
   ) {
     if (activity === 'COFFEE') {
       const mx = x + dir * 11;
-      const my = baseTop + 14;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(mx - 3, my, 6, 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      const my = baseTop + 13;
+      // Mug body & handle
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(mx - 3, my, 6, 7);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(mx + (dir > 0 ? 3 : -5), my + 1, 2, 4);
+      // Coffee liquid rim
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(mx - 2, my + 1, 4, 2);
+      // Animated steam wisps
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.fillRect(mx - 1, my - 4 - ((this.tick >> 3) % 4), 2, 3);
+      ctx.fillRect(mx + 1, my - 2 - (((this.tick >> 3) + 2) % 4), 1, 2);
     } else if (activity === 'TYPING') {
-      const lx = x + dir * 10;
-      const ly = baseTop + 16;
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillRect(lx - 5, ly + 5, 10, 3);
+      const lx = x + dir * 11;
+      const ly = baseTop + 14;
+      // Laptop keyboard base
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(lx - 6, ly + 5, 12, 3);
+      // Laptop screen frame & glowing display
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(lx - 5, ly - 2, 10, 7);
       ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(lx - 4, ly - 1, 8, 6);
+      ctx.fillRect(lx - 4, ly - 1, 8, 5);
+      // Animated code lines on screen
+      ctx.fillStyle = '#bae6fd';
+      ctx.fillRect(lx - 3, ly, 4 + ((this.tick >> 2) % 3), 1);
+      ctx.fillRect(lx - 3, ly + 2, 3 + (((this.tick >> 2) + 1) % 4), 1);
+    } else if (activity === 'READING') {
+      const bx = x + dir * 11;
+      const by = baseTop + 13;
+      // Open book cover
+      ctx.fillStyle = '#b91c1c';
+      ctx.fillRect(bx - 5, by + 1, 10, 7);
+      // Cream book pages
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(bx - 4, by, 4, 7);
+      ctx.fillRect(bx + 1, by, 4, 7);
+      // Spine & text lines
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(bx, by, 1, 8);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(bx - 3, by + 2, 2, 1);
+      ctx.fillRect(bx - 3, by + 4, 2, 1);
+      ctx.fillRect(bx + 2, by + 2, 2, 1);
+      ctx.fillRect(bx + 2, by + 4, 2, 1);
     } else if (activity === 'SLEEPING') {
       ctx.fillStyle = '#bae6fd';
       ctx.font = 'bold 9px monospace';
@@ -2459,18 +2493,22 @@ export class PixelCanvasRenderer {
       ctx.fillText('Zzz', x + 10, baseTop - zOffset);
     } else if (activity === 'FISHING') {
       ctx.strokeStyle = '#fcd34d';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(x + dir * 8, baseTop + 14);
-      ctx.lineTo(x + dir * 24, baseTop + 2);
+      ctx.lineTo(x + dir * 24, baseTop + 1);
       ctx.stroke();
       ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x + dir * 24, baseTop + 2);
-      ctx.lineTo(x + dir * 24, baseTop + 26);
+      ctx.moveTo(x + dir * 24, baseTop + 1);
+      ctx.lineTo(x + dir * 24, baseTop + 25);
       ctx.stroke();
+      const bobY = baseTop + 24 + Math.round(Math.sin(this.tick * 0.14) * 2);
       ctx.fillStyle = '#ef4444';
-      ctx.fillRect(x + dir * 23, baseTop + 25 + Math.round(Math.sin(this.tick * 0.12) * 2), 3, 3);
+      ctx.fillRect(x + dir * 23, bobY, 3, 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + dir * 23, bobY + 2, 3, 2);
     }
   }
 
