@@ -1427,3 +1427,64 @@ body.transparent-overlay .ambient-sound-bar {
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   Chamar Atenção (MSN Nudge Clássico — Tremor Brusco + Botões)
+   ========================================================================== */
+@keyframes msnNudgeShake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  6% { transform: translate(-14px, -9px) rotate(-1.6deg); }
+  12% { transform: translate(15px, 10px) rotate(1.7deg); }
+  18% { transform: translate(-16px, 8px) rotate(-1.5deg); }
+  24% { transform: translate(14px, -11px) rotate(1.6deg); }
+  30% { transform: translate(-15px, -7px) rotate(-1.8deg); }
+  36% { transform: translate(13px, 11px) rotate(1.4deg); }
+  42% { transform: translate(-13px, 9px) rotate(-1.4deg); }
+  48% { transform: translate(14px, -8px) rotate(1.5deg); }
+  54% { transform: translate(-11px, -10px) rotate(-1.2deg); }
+  60% { transform: translate(12px, 8px) rotate(1.3deg); }
+  66% { transform: translate(-10px, 7px) rotate(-1.1deg); }
+  72% { transform: translate(9px, -7px) rotate(1deg); }
+  78% { transform: translate(-8px, 6px) rotate(-0.8deg); }
+  84% { transform: translate(7px, -5px) rotate(0.7deg); }
+  90% { transform: translate(-5px, 4px) rotate(-0.5deg); }
+  95% { transform: translate(3px, -2px) rotate(0.3deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.msn-nudge-shake {
+  animation: msnNudgeShake 0.88s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.btn-attention-msn {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.26), rgba(234, 88, 12, 0.34));
+  border: 1px solid rgba(251, 191, 36, 0.65);
+  color: #fef08a;
+  font-weight: 800;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+}
+
+.btn-attention-msn:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.42), rgba(234, 88, 12, 0.5));
+  border-color: #fde047;
+  transform: translateY(-1px) scale(1.03);
+}
+
+.btn-quick-attention.visiting-friend {
+  border-color: rgba(251, 191, 36, 0.65);
+  background: rgba(245, 158, 11, 0.2);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.msn-nudge-chip {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(234, 88, 12, 0.28)) !important;
+  border-color: rgba(251, 191, 36, 0.65) !important;
+  color: #fef08a !important;
+  font-weight: 800 !important;
+}
+
+.msn-nudge-chip:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.36), rgba(234, 88, 12, 0.42)) !important;
+  border-color: #fde047 !important;
+}
+
+

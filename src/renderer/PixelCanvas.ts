@@ -261,6 +261,8 @@ export class PixelCanvasRenderer {
   private physics = new Map<string, LocalAvatarPhysics>();
   private ambientThoughts = new Map<string, { text: string; expiresAt: number }>();
   private focusOverlay: FocusCanvasOverlayState | null = null;
+  private nudgeShakeUntil = 0;
+  private nudgeBanner: { text: string; expiresAt: number } | null = null;
   private seenSpawnFx = new Set<string>();
   private projectiles: ActiveProjectile[] = [];
   private particles: Particle[] = [];
@@ -407,6 +409,7 @@ export class PixelCanvasRenderer {
 
   public triggerInteractionFx(payload: {
     fromUserId: string;
+    fromDisplayName?: string;
     targetUserId: string;
     actionType: InteractionActionType;
     verifiedItemId?: string;
@@ -431,6 +434,20 @@ export class PixelCanvasRenderer {
     } else if (payload.actionType === 'SYNC_EMOTE') {
       soundEngine.playTone(587.33, 0.14, 'triangle', 0.07, 880);
       this.spawnBurst(payload.fromX, PixelCanvasRenderer.FLOOR_Y - 34, '#f472b6', 12);
+    } else if (payload.actionType === 'ATTENTION') {
+      // 📳 Chamar Atenção (Estilo MSN Messenger: som clássico de mensagem chegando + tremedeira brusca!)
+      soundEngine.playMsnAttention();
+      this.nudgeShakeUntil = Date.now() + 920;
+      const senderName = payload.fromDisplayName || 'Amigo';
+      this.nudgeBanner = {
+        text:
+          payload.fromUserId === this.myUserId
+            ? '📳 Você enviou um Chamar Atenção!'
+            : `📳 ${senderName} chamou sua atenção!`,
+        expiresAt: Date.now() + 3400,
+      };
+      this.spawnBurst(payload.fromX, PixelCanvasRenderer.FLOOR_Y - 28, '#facc15', 22);
+      this.spawnBurst(payload.toX, PixelCanvasRenderer.FLOOR_Y - 28, '#38bdf8', 22);
     }
   }
 
@@ -930,7 +947,15 @@ export class PixelCanvasRenderer {
 
     ctx.clearRect(0, 0, W, H);
 
+    const nowMs = Date.now();
     ctx.save();
+    if (nowMs < this.nudgeShakeUntil) {
+      // Tremedeira brusca estilo MSN Messenger (inclusive visível dentro do PiP Flutuante!)
+      const intensity = Math.max(0.25, (this.nudgeShakeUntil - nowMs) / 920);
+      const shakeX = Math.round((Math.random() - 0.5) * 16 * intensity);
+      const shakeY = Math.round((Math.random() - 0.5) * 12 * intensity);
+      ctx.translate(shakeX, shakeY);
+    }
     if (this.zoomLevel !== 1) {
       ctx.scale(this.zoomLevel, this.zoomLevel);
       ctx.translate(-viewLeft, -viewTop);
@@ -1021,6 +1046,33 @@ export class PixelCanvasRenderer {
     if (this.focusOverlay && this.focusOverlay.active) {
       this.drawFocusTimerHud(ctx, W, H);
     }
+    if (this.nudgeBanner && this.nudgeBanner.expiresAt > nowMs) {
+      this.drawMsnNudgeHud(ctx, W, this.nudgeBanner.text);
+    }
+  }
+
+  /**
+   * Banner estilo MSN Messenger no topo central do Canvas quando alguém chama atenção
+   */
+  private drawMsnNudgeHud(ctx: CanvasRenderingContext2D, W: number, text: string) {
+    ctx.save();
+    ctx.font = 'bold 8.5px monospace';
+    const textW = ctx.measureText(text).width;
+    const boxW = Math.round(textW + 16);
+    const boxH = 18;
+    const boxX = Math.round((W - boxW) / 2);
+    const boxY = 24;
+
+    ctx.fillStyle = 'rgba(30, 58, 138, 0.94)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+    ctx.fillStyle = '#fef08a';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, W / 2, boxY + 12);
+    ctx.restore();
   }
 
   /**

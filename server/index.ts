@@ -1433,6 +1433,19 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
         toX: targetPlayer.x,
       });
       broadcastRoomState(hostId);
+    } else if (actionType === 'ATTENTION') {
+      // 📳 Chamar Atenção (Estilo MSN Messenger! Sacode a sala inteira + som clássico do MSN)
+      io.to(`room:${hostId}`).emit('room:interaction_fx', {
+        fromUserId: userId,
+        fromDisplayName: senderPlayer.displayName,
+        targetUserId: targetPlayer.userId,
+        actionType: 'ATTENTION',
+        fromX: senderPlayer.x,
+        toX: targetPlayer.x,
+      });
+      for (const p of room.players.values()) {
+        io.to(`room:${hostId}`).emit('room:player_jumped', { userId: p.userId });
+      }
     }
   });
 

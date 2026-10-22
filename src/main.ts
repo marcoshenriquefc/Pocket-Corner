@@ -206,6 +206,8 @@ class PocketCornerApp {
   private wellnessRemindersEnabled = localStorage.getItem(WELLNESS_PREF_KEY) !== '0';
   private nextWellnessReminderAt = Date.now() + 60 * 60 * 1000;
   private wellnessMsgIndex = 0;
+  private lastAttentionSentAt = 0;
+  private nudgeDomTimer: number | null = null;
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -569,6 +571,7 @@ class PocketCornerApp {
                   </div>
                 </div>
                 <button class="btn btn-icon" id="btn-quick-poke" title="Cutucar amigo (Poke)">👆</button>
+                <button class="btn btn-icon btn-quick-attention" id="btn-quick-attention" title="Chamar atenção estilo MSN (tremer a tela bruscamente com som clássico do MSN)">📳</button>
                 <button class="btn btn-icon" id="btn-quick-throw" title="Jogar brinquedo">✈️</button>
                 <div class="action-hover-wrap" id="gift-hover-wrap">
                   <button class="btn btn-icon" id="btn-quick-gift" title="Deixar presente no chão (com ou sem recado no Post-it)">
@@ -783,6 +786,10 @@ class PocketCornerApp {
       });
     });
 
+    document.getElementById('btn-quick-attention')?.addEventListener('click', () => {
+      this.sendMsnAttention();
+    });
+
     document.getElementById('btn-quick-throw')!.addEventListener('click', () => {
       this.socket.emit('player:interact', {
         targetUserId: this.getEffectiveTargetUserId(),
@@ -856,6 +863,44 @@ class PocketCornerApp {
 
     this.renderFloatingDock();
     this.renderQuickFriendsStrip();
+  }
+
+  private sendMsnAttention() {
+    const now = Date.now();
+    if (now - this.lastAttentionSentAt < 1800) {
+      this.showToast('info', '📳 Aguarde um instante para chamar atenção novamente!');
+      return;
+    }
+    this.lastAttentionSentAt = now;
+    this.recordManualInput();
+    this.socket.emit('player:interact', {
+      targetUserId: this.getEffectiveTargetUserId(),
+      actionType: 'ATTENTION',
+    });
+  }
+
+  private triggerDomNudgeShake() {
+    const targets = [
+      this.stageWidgetEl,
+      document.querySelector('.minimal-shell') as HTMLElement | null,
+    ].filter(Boolean) as HTMLElement[];
+
+    for (const el of targets) {
+      el.classList.remove('msn-nudge-shake');
+      // Força reflow para reiniciar animação caso chame atenção repetidas vezes
+      void el.offsetWidth;
+      el.classList.add('msn-nudge-shake');
+    }
+
+    if (this.nudgeDomTimer) {
+      window.clearTimeout(this.nudgeDomTimer);
+    }
+    this.nudgeDomTimer = window.setTimeout(() => {
+      for (const el of targets) {
+        el.classList.remove('msn-nudge-shake');
+      }
+      this.nudgeDomTimer = null;
+    }, 950);
   }
 
   private updateQuickActionsMenuState() {
@@ -1032,6 +1077,16 @@ class PocketCornerApp {
 
     this.socket.on('room:interaction_fx', (payload) => {
       this.renderer.triggerInteractionFx(payload);
+      if (payload.actionType === 'ATTENTION') {
+        this.triggerDomNudgeShake();
+        const isFromMe = payload.fromUserId === this.profile?.id;
+        this.showToast(
+          'warning',
+          isFromMe
+            ? '📳 Você acabou de enviar um Chamar Atenção!'
+            : `📳 ${payload.fromDisplayName} acabou de chamar a sua atenção!`
+        );
+      }
     });
 
     this.socket.on('room:knock_alert', (knock) => {
@@ -1627,7 +1682,10 @@ class PocketCornerApp {
 
         ${
           !isMyRoom
-            ? `<button class="btn btn-sm btn-primary" id="btn-top-home">Voltar</button>`
+            ? `<button class="btn btn-sm btn-attention-msn" id="btn-top-attention" title="Chamar atenção estilo MSN (tremer a tela do amigo bruscamente + som clássico do MSN)">
+                 📳 Chamar Atenção
+               </button>
+               <button class="btn btn-sm btn-primary" id="btn-top-home">Voltar</button>`
             : ''
         }
       </div>
@@ -1662,6 +1720,11 @@ class PocketCornerApp {
       </div>
     `;
 
+    const quickAttBtn = document.getElementById('btn-quick-attention');
+    if (quickAttBtn) {
+      quickAttBtn.classList.toggle('visiting-friend', !isMyRoom);
+    }
+
     document.getElementById('btn-open-profile')?.addEventListener('click', () => {
       this.openModal('PROFILE');
     });
@@ -1680,6 +1743,10 @@ class PocketCornerApp {
 
     document.getElementById('btn-top-admin')?.addEventListener('click', () => {
       this.openModal('ADMIN');
+    });
+
+    document.getElementById('btn-top-attention')?.addEventListener('click', () => {
+      this.sendMsnAttention();
     });
 
     document.getElementById('btn-top-home')?.addEventListener('click', () => {
@@ -1877,6 +1944,19 @@ class PocketCornerApp {
         <span>Meu Cantinho</span>
       </button>
 
+      ${
+        !isMyRoom
+          ? `<button
+              class="quick-friend-chip msn-nudge-chip"
+              id="quick-strip-attention"
+              title="Chamar atenção estilo MSN! Faz toda a tela do amigo tremer bruscamente com o som clássico de mensagem do MSN!"
+            >
+              <span class="quick-friend-avatar">📳</span>
+              <span>Chamar Atenção!</span>
+            </button>`
+          : ''
+      }
+
       ${others
         .map((entry) => {
           const bodyItem = getCosmeticById(entry.equipped.avatar_body);
@@ -1939,6 +2019,10 @@ class PocketCornerApp {
       if (!isMyRoom) {
         this.socket.emit('room:leave_visit');
       }
+    });
+
+    document.getElementById('quick-strip-attention')?.addEventListener('click', () => {
+      this.sendMsnAttention();
     });
 
     document.getElementById('quick-strip-summon-bot')?.addEventListener('click', () => {

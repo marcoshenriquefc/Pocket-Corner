@@ -506,6 +506,71 @@ class SoundEngine {
       this.playTone(880, 0.32, 'sine', 0.06);
     }, 140);
   }
+
+  /**
+   * 📳 Som Clássico do MSN Messenger ("Tu-du-dum!" de mensagem chegando + vibração de Chamar Atenção)
+   */
+  public playMsnAttention() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const playMsnChimeNote = (
+      freq: number,
+      delayMs: number,
+      durationSec: number,
+      vol: number
+    ) => {
+      setTimeout(() => {
+        const c = this.getContext();
+        if (!c) return;
+        const now = c.currentTime;
+
+        // Fundamental (timbre cristalino estilo marimba/sino do MSN Messenger)
+        const osc1 = c.createOscillator();
+        const osc2 = c.createOscillator();
+        const gain = c.createGain();
+
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(freq, now);
+
+        // Harmônico de oitava suave que dá o brilho clássico do alerta do MSN
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(freq * 2, now);
+
+        const g2 = c.createGain();
+        g2.gain.setValueAtTime(0.28, now);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(vol, now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + durationSec);
+
+        osc1.connect(gain);
+        osc2.connect(g2);
+        g2.connect(gain);
+        gain.connect(c.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + durationSec + 0.02);
+        osc2.stop(now + durationSec + 0.02);
+      }, delayMs);
+    };
+
+    // 1. Tríade clássica de mensagem chegando do MSN ("Tu - du - dum!")
+    playMsnChimeNote(783.99, 0, 0.16, 0.16); // G5 ("Tu")
+    playMsnChimeNote(987.77, 95, 0.16, 0.17); // B5 ("du")
+    playMsnChimeNote(1174.66, 195, 0.58, 0.2); // D6 ("dum!" longo e brilhante)
+    playMsnChimeNote(587.33, 195, 0.55, 0.11); // D5 (base encorpada do acorde final)
+
+    // 2. Tremor / Zumbido clássico do "Chamar Atenção" acompanhando a tremedeira da janela
+    const buzzPulses = [0, 75, 150, 225, 300, 380, 460];
+    buzzPulses.forEach((delay, idx) => {
+      setTimeout(() => {
+        const f = idx % 2 === 0 ? 145 : 185;
+        this.playTone(f, 0.055, 'sawtooth', 0.045, f * 0.85);
+      }, delay);
+    });
+  }
 }
 
 export const soundEngine = new SoundEngine();

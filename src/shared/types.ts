@@ -247,7 +247,7 @@ export interface RoomUserJoinedPayload {
 // ==========================================
 // 5.1. Eventos Cliente -> Servidor (Inputs)
 // ==========================================
-export type InteractionActionType = 'POKE' | 'THROW_ITEM' | 'SYNC_EMOTE' | 'DESK_DROP';
+export type InteractionActionType = 'POKE' | 'THROW_ITEM' | 'SYNC_EMOTE' | 'DESK_DROP' | 'ATTENTION';
 
 export interface ClientToServerEvents {
   // 1. Solicitar visita a um amigo (ou voltar para a própria sala)
