@@ -57,6 +57,8 @@ export class PocketStore {
 
   // MongoDB Atlas Cloud Persistence
   public isMongoConnected = false;
+  public isMongoConnecting = false;
+  public lastMongoError: string | null = null;
   private mongoClient: MongoClient | null = null;
   private mongoCollection: Collection<MongoStateDoc> | null = null;
   private mongoSaveTimer: NodeJS.Timeout | null = null;
@@ -82,6 +84,9 @@ export class PocketStore {
    * e sincroniza os perfis de usuários, moedas, inventário e móveis na nuvem.
    */
   public async initMongo(mongoUri?: string): Promise<boolean> {
+    if (this.isMongoConnected) return true;
+    if (this.isMongoConnecting) return false;
+
     const cleanUri = mongoUri?.trim();
     if (!cleanUri) {
       console.log(
@@ -90,12 +95,17 @@ export class PocketStore {
       return false;
     }
 
+    this.isMongoConnecting = true;
     try {
-      this.mongoClient = new MongoClient(cleanUri);
+      this.mongoClient = new MongoClient(cleanUri, {
+        serverSelectionTimeoutMS: 6000,
+        connectTimeoutMS: 6000,
+      });
       await this.mongoClient.connect();
       const database = this.mongoClient.db('pocket_corner');
       this.mongoCollection = database.collection<MongoStateDoc>('app_state');
       this.isMongoConnected = true;
+      this.lastMongoError = null;
 
       const cloudDoc = await this.mongoCollection.findOne({ _id: MONGO_DOC_ID });
       if (cloudDoc) {
@@ -117,11 +127,14 @@ export class PocketStore {
     } catch (err) {
       this.isMongoConnected = false;
       this.mongoCollection = null;
+      this.lastMongoError = (err as Error).message;
       console.error(
-        '⚠️ [PocketStore] Falha ao conectar no MongoDB Atlas. Usando fallback local (db.json):',
+        '⚠️ [PocketStore] Falha ao conectar no MongoDB Atlas (verifique Network Access 0.0.0.0/0 no Atlas). Usando fallback local:',
         (err as Error).message
       );
       return false;
+    } finally {
+      this.isMongoConnecting = false;
     }
   }
 

@@ -236,16 +236,17 @@ app.get('/api/catalog', (_req, res) => {
   res.json({ items: COSMETIC_CATALOG });
 });
 
-app.get('/api/auth/config', async (_req, res) => {
+app.get('/api/auth/config', (_req, res) => {
   dotenv.config({ override: true });
-  if (!store.isMongoConnected && process.env.MONGODB_URI?.trim()) {
-    await store.initMongo(process.env.MONGODB_URI);
+  if (!store.isMongoConnected && !store.isMongoConnecting && process.env.MONGODB_URI?.trim()) {
+    void store.initMongo(process.env.MONGODB_URI);
   }
   const googleClientId =
     (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
   res.json({
     googleClientId,
     mongoConnected: store.isMongoConnected,
+    mongoError: store.lastMongoError,
   });
 });
 
@@ -1389,12 +1390,7 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-async function startServer() {
-  await store.initMongo(process.env.MONGODB_URI);
-
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✨ [Pocket Corner Server] Rodando em http://localhost:${PORT}`);
-  });
-}
-
-void startServer();
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`✨ [Pocket Corner Server] Rodando em http://localhost:${PORT}`);
+  void store.initMongo(process.env.MONGODB_URI);
+});

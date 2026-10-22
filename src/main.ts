@@ -115,10 +115,23 @@ class PocketCornerApp {
       this.pendingVisitParam = urlVisit;
     }
 
-    // Busca configuração de OAuth e status do MongoDB do backend
+    const saved = this.loadSavedSession();
+    if (saved) {
+      this.authSession = saved;
+      this.hideLoginScreen();
+      this.connectSocket();
+    } else {
+      // Exibe a tela de login IMEDIATAMENTE (0ms) sem esperar requisição de rede
+      this.renderLoginScreen(!this.googleClientId);
+    }
+
+    // Busca configuração de OAuth e status do MongoDB do backend com timeout curto
     try {
       const baseUrl = getApiBaseUrl();
-      const res = await fetch(`${baseUrl}/api/auth/config`);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(`${baseUrl}/api/auth/config`, { signal: ctrl.signal });
+      clearTimeout(timer);
       if (res.ok) {
         const cfg = (await res.json()) as { googleClientId?: string; mongoConnected?: boolean };
         if (cfg.googleClientId) {
@@ -130,13 +143,8 @@ class PocketCornerApp {
       // Ignora erro de rede inicial
     }
 
-    const saved = this.loadSavedSession();
-    if (saved) {
-      this.authSession = saved;
-      this.hideLoginScreen();
-      this.connectSocket();
-    } else {
-      this.renderLoginScreen();
+    if (!this.authSession) {
+      this.renderLoginScreen(false);
     }
   }
 
@@ -190,7 +198,7 @@ class PocketCornerApp {
       this.socket.disconnect();
     }
     this.closeModal();
-    this.renderLoginScreen();
+    this.renderLoginScreen(false);
     this.showToast('info', '🚪 Você saiu da sua conta.');
   }
 
@@ -200,7 +208,7 @@ class PocketCornerApp {
     }
   }
 
-  private renderLoginScreen() {
+  private renderLoginScreen(isLoadingConfig = false) {
     const isSecretInsteadOfId = this.googleClientId.startsWith('GOCSPX-');
     const hasValidClientId = Boolean(this.googleClientId) && !isSecretInsteadOfId;
 
@@ -219,16 +227,20 @@ class PocketCornerApp {
           ${
             hasValidClientId
               ? `<div class="google-btn-container" id="google-btn-mount"></div>`
-              : isSecretInsteadOfId
-                ? `<div class="login-env-notice">
-                    ⚠️ <b>Atenção no arquivo <code>.env</code>:</b><br/>
-                    Você colou a <b>Chave Secreta</b> (que começa com <code>GOCSPX-...</code>) no lugar do <b>ID do Cliente</b>.<br/><br/>
-                    No Google Cloud, copie o <b>ID do cliente</b> (que começa com <code>614958022711-...</code> e termina com <code>.apps.googleusercontent.com</code>) e cole em <code>GOOGLE_CLIENT_ID</code> e <code>VITE_GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code>!
+              : isLoadingConfig
+                ? `<div class="google-btn-container" style="font-size: 0.78rem; color: var(--text-secondary);">
+                    ⏳ Carregando login do Google...
                   </div>`
-                : `<div class="login-env-notice">
-                    🔑 <b>Google OAuth aguardando chave:</b><br/>
-                    Adicione seu <code>GOOGLE_CLIENT_ID</code> no arquivo <code>.env</code> na raiz do projeto para ativar o login com o Google.
-                  </div>`
+                : isSecretInsteadOfId
+                  ? `<div class="login-env-notice">
+                      ⚠️ <b>Atenção na variável de ambiente:</b><br/>
+                      Você colou a <b>Chave Secreta</b> (que começa com <code>GOCSPX-...</code>) no lugar do <b>ID do Cliente</b>.<br/><br/>
+                      Copie o <b>ID do cliente</b> (que começa com <code>614958022711-...</code> e termina com <code>.apps.googleusercontent.com</code>) e cole em <code>GOOGLE_CLIENT_ID</code> e <code>VITE_GOOGLE_CLIENT_ID</code>!
+                    </div>`
+                  : `<div class="login-env-notice">
+                      🔑 <b>Google OAuth aguardando chave:</b><br/>
+                      Configure a variável <code>GOOGLE_CLIENT_ID</code> no painel do servidor (Environment no Render ou arquivo <code>.env</code>) para ativar o botão do Google.
+                    </div>`
           }
         </div>
       </div>
