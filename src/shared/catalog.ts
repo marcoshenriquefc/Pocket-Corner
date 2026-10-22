@@ -1,4 +1,4 @@
-import { CosmeticItem, EquippedLoadout } from './types';
+import { CosmeticItem, EquippedLoadout, RealMoneyPackage } from './types';
 
 export const GACHAPON_COST_COINS = 80;
 
@@ -185,6 +185,21 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     description: 'Pequeno dragão ancestral com chifres dourados, asas e barriga flamejante.',
     icon: '🐉',
     previewColor: '#ef4444',
+  },
+  {
+    id: 'body_dj_double_d',
+    name: 'DJ Double D (Lendário)',
+    category: 'avatar_body',
+    rarity: 'LEGENDARY',
+    currency: 'GEMS',
+    price: 999,
+    inGachapon: false,
+    realMoneyOnly: true,
+    packId: 'pkg_double_d',
+    description:
+      '👑 EXCLUSIVO DOUBLE D PACK: Skin deslumbrante com jaqueta cyber-gold, visor LED equalizador animado, fones de ouro e aura musical neon!',
+    icon: '🎧',
+    previewColor: '#facc15',
   },
 
   // ==========================================
@@ -544,6 +559,21 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     icon: '🚆',
     previewColor: '#7c2d12',
   },
+  {
+    id: 'room_beco_rapariga',
+    name: 'Beco da Rapariga',
+    category: 'room_skin',
+    rarity: 'LEGENDARY',
+    currency: 'GEMS',
+    price: 999,
+    inGachapon: false,
+    realMoneyOnly: true,
+    packId: 'pkg_double_d',
+    description:
+      '👑 EXCLUSIVO DOUBLE D PACK: Cenário urbano autêntico com muro pichado em pixel art, placa icônica, arbusto de calçada e poste iluminado.',
+    icon: '🪧',
+    previewColor: '#7f1d1d',
+  },
 
   // ==========================================
   // 8. PRESENTES DE MESA (DESK DROPS / AFK GIFTS)
@@ -560,7 +590,7 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     description: 'Deixa um café fumegante no chão. Dá velocidade 2x temporária ao Host!',
     icon: '☕',
     previewColor: '#b45309',
-    meta: { speedBoostSec: 20, bonusCoins: 10 },
+    meta: { speedBoostSec: 20, bonusCoins: 0 },
   },
   {
     id: 'drop_rubber_duck',
@@ -574,7 +604,7 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     description: 'Ajuda no debug! Faz "Quack!" quando o Host clica nele.',
     icon: '🦆',
     previewColor: '#eab308',
-    meta: { bonusCoins: 15 },
+    meta: { bonusCoins: 0 },
   },
   {
     id: 'drop_postit',
@@ -588,7 +618,7 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     description: 'Bilhete amarelo colado no cantinho do amigo.',
     icon: '📝',
     previewColor: '#fef08a',
-    meta: { bonusCoins: 10 },
+    meta: { bonusCoins: 0 },
   },
   {
     id: 'drop_birthday_cake',
@@ -598,10 +628,10 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     currency: 'COINS',
     price: 130,
     inGachapon: true,
-    description: 'Bolo confeitado com velinha acesa! Dá +35 moedas e chuva de confete.',
+    description: 'Bolo confeitado com velinha acesa! Dá velocidade e chuva de confete.',
     icon: '🎂',
     previewColor: '#f43f5e',
-    meta: { speedBoostSec: 15, bonusCoins: 35 },
+    meta: { speedBoostSec: 15, bonusCoins: 2 },
   },
   {
     id: 'drop_sleeping_cat',
@@ -614,7 +644,7 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     description: 'Um gatinho enrolado no tapete que ronrona quando recebe carinho.',
     icon: '🐈',
     previewColor: '#fb923c',
-    meta: { speedBoostSec: 25, bonusCoins: 50 },
+    meta: { speedBoostSec: 25, bonusCoins: 3 },
   },
 
   // ==========================================
@@ -779,10 +809,97 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     previewColor: '#f472b6',
     meta: { widthPx: 30 },
   },
+  {
+    id: 'furn_dj_booth',
+    name: 'Mesa de DJ Double D',
+    category: 'furniture',
+    rarity: 'LEGENDARY',
+    currency: 'GEMS',
+    price: 999,
+    inGachapon: false,
+    realMoneyOnly: true,
+    packId: 'pkg_double_d',
+    description:
+      '👑 EXCLUSIVO DOUBLE D PACK: Mesa de DJ completa com toca-discos giratórios duplos, mixer iluminado, subwoofers e painel LED equalizador animado!',
+    icon: '🎛️',
+    previewColor: '#facc15',
+    meta: { widthPx: 62 },
+  },
+];
+
+// ==========================================
+// 10. PACOTES EM DINHEIRO REAL (MERCADO PAGO PIX)
+// Validados estritamente no servidor!
+// ==========================================
+export const REAL_MONEY_PACKAGES: RealMoneyPackage[] = [
+  {
+    id: 'pkg_double_d',
+    name: 'Double D Pack (Exclusivo)',
+    subtitle: '👑 Skin Lendária DJ + Cenário Beco da Rapariga + Mesa de DJ',
+    description:
+      'O pacote mais deslumbrante do Pocket Corner! Inclui a Skin Lendária DJ Double D (com aura neon e equalizador animado), o cenário urbano Beco da Rapariga e a Mesa de DJ animada. Vendido APENAS em dinheiro real!',
+    icon: '🎧',
+    badgeText: 'EXCLUSIVO VIP',
+    priceBrl: 19.9,
+    type: 'EXCLUSIVE_BUNDLE',
+    grantedItemIds: ['body_dj_double_d', 'room_beco_rapariga', 'furn_dj_booth'],
+  },
+  {
+    id: 'pkg_gems_p',
+    name: 'Pacote P de Pip Diamantes',
+    subtitle: '100 Pip Diamantes 💎',
+    description: 'Pacote inicial com 100 Pip Diamantes para desbloquear itens especiais na loja.',
+    icon: '💎',
+    priceBrl: 5.0,
+    type: 'GEMS_PACK',
+    gemsAmount: 100,
+    bonusGems: 0,
+  },
+  {
+    id: 'pkg_gems_m',
+    name: 'Pacote M de Pip Diamantes',
+    subtitle: '325 Pip Diamantes 💎 (+25 de bônus)',
+    description: 'Receba 300 + 25 Pip Diamantes de bônus! Ideal para personalizar seu Pip e cantinho.',
+    icon: '💎',
+    badgeText: '+25 BÔNUS',
+    priceBrl: 15.0,
+    type: 'GEMS_PACK',
+    gemsAmount: 325,
+    bonusGems: 25,
+  },
+  {
+    id: 'pkg_gems_g',
+    name: 'Pacote G de Pip Diamantes',
+    subtitle: '700 Pip Diamantes 💎 (+100 de bônus)',
+    description: 'Baú recheado com 600 + 100 Pip Diamantes de bônus! O melhor custo-benefício.',
+    icon: '💎',
+    badgeText: '+100 BÔNUS • MELHOR VALOR',
+    priceBrl: 30.0,
+    type: 'GEMS_PACK',
+    gemsAmount: 700,
+    bonusGems: 100,
+  },
+  {
+    id: 'pkg_test_1cent',
+    name: 'Item Teste (1 Centavo)',
+    subtitle: '1 Pip Diamante 💎 (Teste PIX Real)',
+    description: 'Pacote de R$ 0,01 (1 centavo) para testar a integração real com o Mercado Pago.',
+    icon: '🧪',
+    badgeText: 'TESTE R$ 0,01',
+    priceBrl: 0.01,
+    type: 'GEMS_PACK',
+    gemsAmount: 1,
+    bonusGems: 0,
+    isTestItem: true,
+  },
 ];
 
 export const CATALOG_BY_ID = new Map<string, CosmeticItem>(
   COSMETIC_CATALOG.map((item) => [item.id, item])
+);
+
+export const REAL_MONEY_PACKAGES_BY_ID = new Map<string, RealMoneyPackage>(
+  REAL_MONEY_PACKAGES.map((pkg) => [pkg.id, pkg])
 );
 
 export const STARTER_INVENTORY_IDS: string[] = COSMETIC_CATALOG.filter(
@@ -791,4 +908,8 @@ export const STARTER_INVENTORY_IDS: string[] = COSMETIC_CATALOG.filter(
 
 export function getCosmeticById(itemId: string): CosmeticItem | undefined {
   return CATALOG_BY_ID.get(itemId);
+}
+
+export function getRealMoneyPackageById(pkgId: string): RealMoneyPackage | undefined {
+  return REAL_MONEY_PACKAGES_BY_ID.get(pkgId);
 }

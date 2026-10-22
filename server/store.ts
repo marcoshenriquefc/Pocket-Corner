@@ -7,6 +7,7 @@ import {
   GACHAPON_COST_COINS,
   STARTER_INVENTORY_IDS,
   getCosmeticById,
+  getRealMoneyPackageById,
 } from '../src/shared/catalog';
 import {
   CosmeticItem,
@@ -17,14 +18,19 @@ import {
   IdleActivity,
   KnockRequest,
   OnlineDirectoryEntry,
+  PaymentStatus,
+  PaymentTransactionRecord,
   RoomPlayerState,
   RoomSnapshot,
+  ShopPurchaseLogRecord,
   UserProfile,
 } from '../src/shared/types';
 
 interface PersistentDB {
   users: Record<string, UserProfile>;
   deskDropsByHost: Record<string, DeskDropInstance[]>;
+  paymentTransactions: PaymentTransactionRecord[];
+  shopPurchaseLogs: ShopPurchaseLogRecord[];
 }
 
 interface MongoStateDoc extends PersistentDB {
@@ -53,6 +59,8 @@ export class PocketStore {
   private db: PersistentDB = {
     users: {},
     deskDropsByHost: {},
+    paymentTransactions: [],
+    shopPurchaseLogs: [],
   };
 
   // MongoDB Atlas Cloud Persistence
@@ -81,7 +89,7 @@ export class PocketStore {
 
   /**
    * Conecta ao MongoDB Atlas (se MONGODB_URI estiver definido no .env)
-   * e sincroniza os perfis de usuários, moedas, inventário e móveis na nuvem.
+   * e sincroniza os perfis de usuários, moedas, inventário, móveis e transações na nuvem.
    */
   public async initMongo(mongoUri?: string): Promise<boolean> {
     if (this.isMongoConnected) return true;
@@ -114,6 +122,22 @@ export class PocketStore {
           ...this.db.deskDropsByHost,
           ...(cloudDoc.deskDropsByHost || {}),
         };
+        if (Array.isArray(cloudDoc.paymentTransactions)) {
+          const txMap = new Map<string, PaymentTransactionRecord>();
+          for (const tx of this.db.paymentTransactions) txMap.set(tx.id, tx);
+          for (const tx of cloudDoc.paymentTransactions) txMap.set(tx.id, tx);
+          this.db.paymentTransactions = Array.from(txMap.values()).sort(
+            (a, b) => b.createdAt - a.createdAt
+          );
+        }
+        if (Array.isArray(cloudDoc.shopPurchaseLogs)) {
+          const logMap = new Map<string, ShopPurchaseLogRecord>();
+          for (const lg of this.db.shopPurchaseLogs) logMap.set(lg.id, lg);
+          for (const lg of cloudDoc.shopPurchaseLogs) logMap.set(lg.id, lg);
+          this.db.shopPurchaseLogs = Array.from(logMap.values()).sort(
+            (a, b) => b.createdAt - a.createdAt
+          );
+        }
         this.ensureCompanionBot();
         this.writeLocalFileSync();
         console.log(
@@ -148,6 +172,12 @@ export class PocketStore {
         const parsed = JSON.parse(raw) as Partial<PersistentDB>;
         this.db.users = parsed.users || {};
         this.db.deskDropsByHost = parsed.deskDropsByHost || {};
+        this.db.paymentTransactions = Array.isArray(parsed.paymentTransactions)
+          ? parsed.paymentTransactions
+          : [];
+        this.db.shopPurchaseLogs = Array.isArray(parsed.shopPurchaseLogs)
+          ? parsed.shopPurchaseLogs
+          : [];
       }
     } catch (err) {
       console.error('[PocketStore] Error loading db.json, starting fresh:', err);
@@ -174,6 +204,8 @@ export class PocketStore {
           $set: {
             users: this.db.users,
             deskDropsByHost: this.db.deskDropsByHost,
+            paymentTransactions: this.db.paymentTransactions,
+            shopPurchaseLogs: this.db.shopPurchaseLogs,
             updatedAt: Date.now(),
           },
         },
@@ -338,7 +370,7 @@ export class PocketStore {
 
       this.saveDB();
       this.loadSessionCosmetics(existing.id);
-      return existing;
+      return this.withComputedAdminFlag(existing);
     }
 
     const candidateUsername = this.generateImmutableUniqueHandle(cleanGoogleName);
@@ -352,8 +384,8 @@ export class PocketStore {
       email: cleanEmail,
       googleName: cleanGoogleName,
       picture: params.picture,
-      coins: 240,
-      gems: 150,
+      coins: 20,
+      gems: 0,
       inventory: [...STARTER_INVENTORY_IDS],
       equipped: { ...DEFAULT_EQUIPPED },
       placedFurniture: [
@@ -383,7 +415,7 @@ export class PocketStore {
     ];
     this.saveDB();
     this.loadSessionCosmetics(id);
-    return newUser;
+    return this.withComputedAdminFlag(newUser);
   }
 
   public getOrCreateUser(usernameInput: string, displayNameInput?: string): UserProfile {
@@ -405,7 +437,7 @@ export class PocketStore {
       }
       this.saveDB();
       this.loadSessionCosmetics(existing.id);
-      return existing;
+      return this.withComputedAdminFlag(existing);
     }
 
     const id = `usr_${Math.random().toString(36).slice(2, 9)}`;
@@ -413,8 +445,8 @@ export class PocketStore {
       id,
       username: cleanUsername,
       displayName: (displayNameInput?.trim() || cleanUsername).slice(0, 24),
-      coins: 240,
-      gems: 150,
+      coins: 20,
+      gems: 0,
       inventory: [...STARTER_INVENTORY_IDS],
       equipped: { ...DEFAULT_EQUIPPED },
       placedFurniture: [
@@ -444,7 +476,7 @@ export class PocketStore {
     ];
     this.saveDB();
     this.loadSessionCosmetics(id);
-    return newUser;
+    return this.withComputedAdminFlag(newUser);
   }
 
   public updateUserNickname(userId: string, rawNickname: string): UserProfile | null {
@@ -470,11 +502,42 @@ export class PocketStore {
     }
 
     this.saveDB();
-    return user;
+    return this.withComputedAdminFlag(user);
+  }
+
+  /**
+   * REGRA DE SEGURANÇA MÁXIMA:
+   * A verificação de Administrador ocorre EXCLUSIVAMENTE no servidor comparando
+   * o e-mail da conta Google autenticada no banco com process.env.ADMIN_EMAIL.
+   * O frontend NUNCA tem autoridade para definir ou alterar isAdmin.
+   */
+  public isUserAdmin(userOrId: UserProfile | string | undefined | null): boolean {
+    const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!adminEmail) return false;
+
+    const u =
+      typeof userOrId === 'string'
+        ? this.db.users[userOrId]
+        : userOrId
+          ? this.db.users[userOrId.id] || userOrId
+          : undefined;
+
+    if (!u || !u.googleId || !u.email) return false;
+    return u.email.trim().toLowerCase() === adminEmail;
+  }
+
+  public withComputedAdminFlag(user: UserProfile): UserProfile {
+    return {
+      ...user,
+      isAdmin: this.isUserAdmin(user),
+    };
   }
 
   public getUserById(userId: string): UserProfile | undefined {
-    return this.db.users[userId];
+    const u = this.db.users[userId];
+    if (!u) return undefined;
+    u.isAdmin = this.isUserAdmin(u);
+    return u;
   }
 
   public getUserByGoogleId(googleId: string): UserProfile | undefined {
@@ -680,14 +743,26 @@ export class PocketStore {
       return { ok: false, message: 'Você já possui este item no seu inventário!' };
     }
 
+    // BLOQUEIO ESTRITO NO SERVIDOR: itens exclusivos de pacotes em R$ (ex: Double D Pack) NUNCA podem ser comprados com moedas ou diamantes!
+    if (item.realMoneyOnly) {
+      return {
+        ok: false,
+        message:
+          '👑 Este item é exclusivo do "Double D Pack" e só pode ser adquirido com dinheiro real na aba 💎 Pip Diamantes & VIP!',
+      };
+    }
+
     if (item.currency === 'COINS') {
       if (user.coins < item.price) {
-        return { ok: false, message: `Moedas Idle insuficientes! Precisa de ${item.price} 🪙.` };
+        return { ok: false, message: `Moedas insuficientes! Precisa de ${item.price} 🪙.` };
       }
       user.coins -= item.price;
     } else {
       if (user.gems < item.price) {
-        return { ok: false, message: `Gems insuficientes! Precisa de ${item.price} 💎.` };
+        return {
+          ok: false,
+          message: `Pip Diamantes insuficientes! Precisa de ${item.price} 💎 (compre pacotes na aba 💎 Pip Diamantes).`,
+        };
       }
       user.gems -= item.price;
     }
@@ -698,6 +773,26 @@ export class PocketStore {
     } else {
       user.equipped[item.category] = itemId;
     }
+
+    // Registra log de compra interna para auditoria no Painel do Administrador
+    this.db.shopPurchaseLogs.unshift({
+      id: `pur_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      email: user.email,
+      itemId: item.id,
+      itemName: item.name,
+      itemIcon: item.icon,
+      currency: item.currency,
+      price: item.price,
+      source: 'SHOP',
+      createdAt: Date.now(),
+    });
+    if (this.db.shopPurchaseLogs.length > 500) {
+      this.db.shopPurchaseLogs.length = 500;
+    }
+
     this.saveDB();
     const updatedLoadout = this.loadSessionCosmetics(userId);
 
@@ -836,12 +931,12 @@ export class PocketStore {
     if (user.coins < GACHAPON_COST_COINS) {
       return {
         ok: false,
-        message: `Você precisa de ${GACHAPON_COST_COINS} 🪙 Moedas Idle para girar o Gachapon!`,
+        message: `Você precisa de ${GACHAPON_COST_COINS} 🪙 Moedas para girar a Cápsula Surpresa!`,
       };
     }
 
     user.coins -= GACHAPON_COST_COINS;
-    const pool = COSMETIC_CATALOG.filter((c) => c.inGachapon);
+    const pool = COSMETIC_CATALOG.filter((c) => c.inGachapon && !c.realMoneyOnly);
     const chosen = pool[Math.floor(Math.random() * pool.length)];
 
     let isDuplicate = false;
@@ -855,15 +950,220 @@ export class PocketStore {
       user.inventory.push(chosen.id);
     }
 
+    this.db.shopPurchaseLogs.unshift({
+      id: `pur_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      email: user.email,
+      itemId: chosen.id,
+      itemName: `${chosen.name}${isDuplicate ? ' (Repetido)' : ''}`,
+      itemIcon: chosen.icon,
+      currency: 'COINS',
+      price: isDuplicate ? GACHAPON_COST_COINS - refundCoins : GACHAPON_COST_COINS,
+      source: 'GACHAPON',
+      createdAt: Date.now(),
+    });
+    if (this.db.shopPurchaseLogs.length > 500) {
+      this.db.shopPurchaseLogs.length = 500;
+    }
+
     this.saveDB();
     return {
       ok: true,
       message: isDuplicate
         ? `Tirou ${chosen.icon} ${chosen.name} (Repetido! +${refundCoins} 🪙 de reembolso)`
-        : `🎉 GACHAPON! Você ganhou ${chosen.icon} ${chosen.name}!`,
+        : `🎉 CÁPSULA! Você ganhou ${chosen.icon} ${chosen.name}!`,
       item: chosen,
       isDuplicate,
       refundCoins,
+    };
+  }
+
+  // ==========================================
+  // TRANSAÇÕES DE DINHEIRO REAL (MERCADO PAGO) & PAINEL ADMIN
+  // ==========================================
+  public createPaymentTransaction(params: {
+    userId: string;
+    packageId: string;
+    mpPaymentId?: string;
+  }): PaymentTransactionRecord | null {
+    const user = this.db.users[params.userId];
+    const pkg = getRealMoneyPackageById(params.packageId);
+    if (!user || !pkg) return null;
+
+    const tx: PaymentTransactionRecord = {
+      id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      mpPaymentId: params.mpPaymentId,
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      email: user.email,
+      packageId: pkg.id,
+      packageName: pkg.name,
+      amountBrl: pkg.priceBrl,
+      status: 'PENDING',
+      createdAt: Date.now(),
+    };
+
+    this.db.paymentTransactions.unshift(tx);
+    if (this.db.paymentTransactions.length > 500) {
+      this.db.paymentTransactions.length = 500;
+    }
+    this.saveDB();
+    return tx;
+  }
+
+  public getPaymentTransactionById(txId: string): PaymentTransactionRecord | undefined {
+    return this.db.paymentTransactions.find((t) => t.id === txId);
+  }
+
+  public findPaymentTransactionByMpId(mpPaymentId: string): PaymentTransactionRecord | undefined {
+    return this.db.paymentTransactions.find((t) => t.mpPaymentId === String(mpPaymentId));
+  }
+
+  public setPaymentTransactionMpId(txId: string, mpPaymentId: string): void {
+    const tx = this.getPaymentTransactionById(txId);
+    if (tx) {
+      tx.mpPaymentId = String(mpPaymentId);
+      this.saveDB();
+    }
+  }
+
+  public updatePaymentTransactionStatus(txId: string, status: PaymentStatus): void {
+    const tx = this.getPaymentTransactionById(txId);
+    if (tx && tx.status !== 'APPROVED') {
+      tx.status = status;
+      this.saveDB();
+    }
+  }
+
+  /**
+   * Credita de forma idempotente os Pip Diamantes ou o Double D Pack quando o pagamento
+   * é confirmado pelo Mercado Pago.
+   */
+  public approvePaymentTransaction(
+    txId: string,
+    mpPaymentId?: string
+  ): {
+    ok: boolean;
+    alreadyApproved?: boolean;
+    tx?: PaymentTransactionRecord;
+    user?: UserProfile;
+    rewardSummary?: string;
+  } {
+    const tx = this.getPaymentTransactionById(txId);
+    if (!tx) return { ok: false };
+
+    if (mpPaymentId) {
+      tx.mpPaymentId = String(mpPaymentId);
+    }
+
+    const user = this.db.users[tx.userId];
+    if (!user) return { ok: false };
+
+    if (tx.status === 'APPROVED') {
+      return {
+        ok: true,
+        alreadyApproved: true,
+        tx,
+        user: this.withComputedAdminFlag(user),
+      };
+    }
+
+    const pkg = getRealMoneyPackageById(tx.packageId);
+    if (!pkg) return { ok: false };
+
+    tx.status = 'APPROVED';
+    tx.approvedAt = Date.now();
+
+    let rewardSummary = '';
+
+    if (pkg.type === 'GEMS_PACK' && pkg.gemsAmount) {
+      user.gems = (user.gems || 0) + pkg.gemsAmount;
+      tx.gemsCredited = pkg.gemsAmount;
+      rewardSummary = `+${pkg.gemsAmount} Pip Diamantes 💎 creditados na sua conta!`;
+    } else if (pkg.type === 'EXCLUSIVE_BUNDLE' && pkg.grantedItemIds) {
+      const granted: string[] = [];
+      for (const itemId of pkg.grantedItemIds) {
+        if (!user.inventory.includes(itemId)) {
+          user.inventory.push(itemId);
+        }
+        granted.push(itemId);
+
+        const item = getCosmeticById(itemId);
+        if (item) {
+          if (item.category === 'furniture') {
+            if (!user.placedFurniture) user.placedFurniture = [];
+            if (!user.placedFurniture.some((f) => f.itemId === itemId)) {
+              user.placedFurniture.push({
+                instanceId: `furn_${Date.now()}_dj`,
+                itemId,
+                x: 196,
+                flipped: false,
+                colorVariant: 'default',
+              });
+            }
+          } else {
+            user.equipped[item.category] = itemId;
+          }
+        }
+      }
+      tx.itemsGranted = granted;
+      const updatedLoadout = this.loadSessionCosmetics(user.id);
+      const currentRoomHostId = this.userCurrentRoom.get(user.id);
+      if (currentRoomHostId) {
+        const room = this.rooms.get(currentRoomHostId);
+        const playerState = room?.players.get(user.id);
+        if (playerState) {
+          playerState.equipped = updatedLoadout;
+        }
+      }
+      rewardSummary =
+        '👑 Double D Pack desbloqueado e equipado: Skin DJ Double D + Beco da Rapariga + Mesa de DJ!';
+    }
+
+    this.saveDB();
+    return {
+      ok: true,
+      alreadyApproved: false,
+      tx,
+      user: this.withComputedAdminFlag(user),
+      rewardSummary,
+    };
+  }
+
+  public getAdminDashboardData() {
+    const txs = this.db.paymentTransactions || [];
+    const logs = this.db.shopPurchaseLogs || [];
+
+    let totalApprovedBrl = 0;
+    let approvedCount = 0;
+    let pendingCount = 0;
+    let totalGemsSold = 0;
+
+    for (const t of txs) {
+      if (t.status === 'APPROVED') {
+        totalApprovedBrl += Number(t.amountBrl || 0);
+        approvedCount++;
+        totalGemsSold += Number(t.gemsCredited || 0);
+      } else if (t.status === 'PENDING') {
+        pendingCount++;
+      }
+    }
+
+    return {
+      summary: {
+        totalApprovedBrl: Number(totalApprovedBrl.toFixed(2)),
+        approvedCount,
+        pendingCount,
+        totalTransactions: txs.length,
+        totalGemsSold,
+        totalShopPurchases: logs.length,
+        totalRegisteredUsers: Object.keys(this.db.users).length,
+      },
+      paymentTransactions: txs.slice(0, 200),
+      shopPurchaseLogs: logs.slice(0, 200),
     };
   }
 
@@ -964,7 +1264,7 @@ export class PocketStore {
     const hostUser = this.db.users[hostUserId];
 
     if (hostUser && item) {
-      const bonus = item.meta?.bonusCoins ?? 10;
+      const bonus = item.meta?.bonusCoins ?? 0;
       hostUser.coins += bonus;
 
       const room = this.rooms.get(hostUserId);

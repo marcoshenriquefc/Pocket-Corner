@@ -25,6 +25,8 @@ export interface CosmeticItem {
   price: number;
   inGachapon: boolean;
   isStarter?: boolean;
+  realMoneyOnly?: boolean; // Se true, SÓ pode ser obtido comprando o pacote em R$ (Mercado Pago)
+  packId?: string; // ID do pacote em R$ ao qual este item pertence
   description: string;
   icon: string;
   previewColor: string;
@@ -35,6 +37,55 @@ export interface CosmeticItem {
     bonusCoins?: number;
     widthPx?: number;
   };
+}
+
+export interface RealMoneyPackage {
+  id: string;
+  name: string;
+  subtitle: string;
+  description: string;
+  icon: string;
+  badgeText?: string;
+  priceBrl: number; // Valor em Reais (ex: 0.01, 5.00, 15.00, 30.00, 24.90)
+  type: 'GEMS_PACK' | 'EXCLUSIVE_BUNDLE';
+  gemsAmount?: number; // Quantidade total de Pip Diamantes entregues
+  bonusGems?: number; // Bônus já incluso em gemsAmount (para exibição)
+  grantedItemIds?: string[]; // Itens exclusivos desbloqueados pelo pacote (ex: Double D Pack)
+  isTestItem?: boolean;
+}
+
+export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface PaymentTransactionRecord {
+  id: string;
+  mpPaymentId?: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  email?: string;
+  packageId: string;
+  packageName: string;
+  amountBrl: number;
+  status: PaymentStatus;
+  gemsCredited?: number;
+  itemsGranted?: string[];
+  createdAt: number;
+  approvedAt?: number;
+}
+
+export interface ShopPurchaseLogRecord {
+  id: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  email?: string;
+  itemId: string;
+  itemName: string;
+  itemIcon: string;
+  currency: 'COINS' | 'GEMS';
+  price: number;
+  source: 'SHOP' | 'GACHAPON';
+  createdAt: number;
 }
 
 export interface PlacedFurnitureItem {
@@ -74,6 +125,7 @@ export interface UserProfile {
   email?: string;
   googleName?: string;
   picture?: string;
+  isAdmin?: boolean; // Calculado EXCLUSIVAMENTE no servidor comparando o email Google verificado com ADMIN_EMAIL
   coins: number;
   gems: number;
   inventory: string[]; // Array of owned item_ids (verified server-side)

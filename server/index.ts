@@ -4,9 +4,15 @@ import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import cors from 'cors';
 import { Server, Socket } from 'socket.io';
-import { COSMETIC_CATALOG, getCosmeticById } from '../src/shared/catalog';
+import {
+  COSMETIC_CATALOG,
+  REAL_MONEY_PACKAGES,
+  getCosmeticById,
+  getRealMoneyPackageById,
+} from '../src/shared/catalog';
 import {
   ClientToServerEvents,
   DoorPermission,
@@ -15,6 +21,7 @@ import {
   KnockRequest,
   RoomPlayerState,
   ServerToClientEvents,
+  UserProfile,
 } from '../src/shared/types';
 import { BOT_USER_ID, PocketStore } from './store';
 
@@ -153,18 +160,98 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
       },
     });
 
-    targetHost.coins += 5;
-    store.saveDB();
-    emitToUser(targetHostId, 'auth:profile', targetHost);
     emitToUser(targetHostId, 'system:toast', {
       type: 'info',
-      message: `✨ ${user.displayName} entrou no seu cantinho! (+5 🪙 de visita)`,
+      message: `✨ ${user.displayName} entrou no seu cantinho!`,
     });
   }
 
   broadcastRoomState(targetHostId);
   broadcastDirectory();
   return true;
+}
+
+// ==========================================
+// AUTENTICAÇÃO CRIPTOGRÁFICA DE SESSÃO (SERVIDOR)
+// NUNCA CONFIAR NO FRONTEND!
+// ==========================================
+function getServerSessionSecret(): string {
+  return (
+    process.env.SESSION_SECRET ||
+    process.env.MONGODB_URI ||
+    process.env.GOOGLE_CLIENT_ID ||
+    'pocket_corner_hmac_server_secret_2026'
+  ).trim();
+}
+
+function issueServerSessionToken(user: UserProfile): string {
+  const payload = JSON.stringify({
+    uid: user.id,
+    gid: user.googleId || '',
+    email: (user.email || '').toLowerCase(),
+    iat: Date.now(),
+  });
+  const payloadB64 = Buffer.from(payload, 'utf-8').toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getServerSessionSecret())
+    .update(payloadB64)
+    .digest('base64url');
+  return `${payloadB64}.${sig}`;
+}
+
+function verifyServerSessionToken(token?: string): UserProfile | null {
+  if (!token || !token.includes('.')) return null;
+  const [payloadB64, sig] = token.split('.');
+  if (!payloadB64 || !sig) return null;
+
+  const expectedSig = crypto
+    .createHmac('sha256', getServerSessionSecret())
+    .update(payloadB64)
+    .digest('base64url');
+
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8')) as {
+      uid?: string;
+      gid?: string;
+    };
+    if (!parsed.uid) return null;
+    const user = store.getUserById(parsed.uid);
+    if (!user) return null;
+    if (parsed.gid && user.googleId && parsed.gid !== user.googleId) return null;
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve o usuário autenticado a partir do token HMAC assinado pelo servidor
+ * ou verificando a identidade Google registrada no banco do servidor.
+ */
+function resolveAuthenticatedRequestUser(req: express.Request): UserProfile | null {
+  const authHeader = String(req.headers.authorization || '').trim();
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    const verified = verifyServerSessionToken(token);
+    if (verified) return verified;
+  }
+
+  const headerUserId = String(req.headers['x-user-id'] || '').trim();
+  const headerGoogleId = String(req.headers['x-google-id'] || '').trim();
+  if (headerUserId && headerGoogleId) {
+    const user = store.getUserById(headerUserId);
+    if (user && user.googleId && user.googleId === headerGoogleId) {
+      return user;
+    }
+  }
+
+  return null;
 }
 
 import { spawn, ChildProcess } from 'node:child_process';
@@ -233,7 +320,7 @@ app.post('/api/desktop/toggle', (req, res) => {
 });
 
 app.get('/api/catalog', (_req, res) => {
-  res.json({ items: COSMETIC_CATALOG });
+  res.json({ items: COSMETIC_CATALOG, packages: REAL_MONEY_PACKAGES });
 });
 
 app.get('/api/auth/config', (_req, res) => {
@@ -243,14 +330,17 @@ app.get('/api/auth/config', (_req, res) => {
   }
   const googleClientId =
     (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  const mercadoPagoConfigured = Boolean((process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim());
   res.json({
     googleClientId,
     mongoConnected: store.isMongoConnected,
     mongoError: store.lastMongoError,
+    mercadoPagoConfigured,
   });
 });
 
 app.post('/api/auth/google', async (req, res) => {
+  dotenv.config({ override: true });
   const { credential } = (req.body || {}) as { credential?: string };
   if (!credential || !credential.trim()) {
     res.status(400).json({ error: 'Token do Google ausente.' });
@@ -303,11 +393,294 @@ app.post('/api/auth/google', async (req, res) => {
       picture: tokenInfo.picture,
     });
 
-    res.json({ ok: true, profile });
+    const sessionToken = issueServerSessionToken(profile);
+    res.json({ ok: true, profile, sessionToken });
   } catch (err) {
     console.error('[Google Auth] Erro ao validar token:', err);
     res.status(500).json({ error: 'Falha ao validar login com o Google.' });
   }
+});
+
+// ==========================================
+// MERCADO PAGO PIX - PAGAMENTOS EM DINHEIRO REAL
+// Preços e pacotes validados 100% no servidor!
+// ==========================================
+async function verifyAndFulfillMercadoPagoPayment(
+  mpPaymentId: string,
+  fallbackTxId?: string
+): Promise<{
+  ok: boolean;
+  status: string;
+  approved: boolean;
+  rewardSummary?: string;
+}> {
+  dotenv.config({ override: true });
+  const mpToken = (process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+  if (!mpToken || !mpPaymentId) {
+    return { ok: false, status: 'PENDING', approved: false };
+  }
+
+  try {
+    const mpRes = await fetch(
+      `https://api.mercadopago.com/v1/payments/${encodeURIComponent(mpPaymentId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${mpToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!mpRes.ok) {
+      return { ok: false, status: 'PENDING', approved: false };
+    }
+
+    const mpData = (await mpRes.json()) as {
+      id?: number | string;
+      status?: string;
+      external_reference?: string;
+      transaction_amount?: number;
+    };
+
+    const rawStatus = String(mpData.status || '').toLowerCase();
+    const txId = mpData.external_reference || fallbackTxId || '';
+    const tx =
+      (txId ? store.getPaymentTransactionById(txId) : undefined) ||
+      store.findPaymentTransactionByMpId(String(mpData.id || mpPaymentId));
+
+    if (!tx) {
+      return { ok: false, status: rawStatus.toUpperCase(), approved: false };
+    }
+
+    if (rawStatus === 'approved') {
+      const approval = store.approvePaymentTransaction(tx.id, String(mpData.id || mpPaymentId));
+      if (approval.ok && !approval.alreadyApproved && approval.user) {
+        emitToUser(approval.user.id, 'auth:profile', approval.user);
+        emitToUser(approval.user.id, 'system:toast', {
+          type: 'success',
+          message: `🎉 Pagamento PIX aprovado! ${approval.rewardSummary || ''}`,
+        });
+        const hostId = store.userCurrentRoom.get(approval.user.id) || approval.user.id;
+        broadcastRoomState(hostId);
+        if (hostId !== approval.user.id) {
+          broadcastRoomState(approval.user.id);
+        }
+        broadcastDirectory();
+      }
+      return {
+        ok: true,
+        status: 'APPROVED',
+        approved: true,
+        rewardSummary: approval.rewardSummary,
+      };
+    } else if (rawStatus === 'rejected' || rawStatus === 'cancelled') {
+      store.updatePaymentTransactionStatus(
+        tx.id,
+        rawStatus === 'rejected' ? 'REJECTED' : 'CANCELLED'
+      );
+      return { ok: true, status: rawStatus.toUpperCase(), approved: false };
+    }
+
+    return { ok: true, status: 'PENDING', approved: false };
+  } catch (err) {
+    console.error('[MercadoPago] Erro ao consultar pagamento:', err);
+    return { ok: false, status: 'PENDING', approved: false };
+  }
+}
+
+app.post('/api/payments/create', async (req, res) => {
+  dotenv.config({ override: true });
+  const authUser = resolveAuthenticatedRequestUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Sessão inválida. Faça login novamente com sua conta Google.' });
+    return;
+  }
+
+  const { packageId } = (req.body || {}) as { packageId?: string };
+  const pkg = getRealMoneyPackageById(String(packageId || '').trim());
+  if (!pkg) {
+    res.status(400).json({ error: 'Pacote inválido ou inexistente no servidor.' });
+    return;
+  }
+
+  // Se for o pacote exclusivo Double D Pack e o jogador já tiver todos os itens, evita cobrança duplicada
+  if (
+    pkg.type === 'EXCLUSIVE_BUNDLE' &&
+    pkg.grantedItemIds &&
+    pkg.grantedItemIds.every((id) => authUser.inventory.includes(id))
+  ) {
+    res.status(400).json({ error: 'Você já possui todos os itens do Double D Pack na sua conta!' });
+    return;
+  }
+
+  const mpToken = (process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+  if (!mpToken) {
+    res.status(400).json({
+      error:
+        '🔑 MERCADOPAGO_ACCESS_TOKEN ainda não configurado no .env / Render. Adicione seu Access Token do Mercado Pago para gerar o QR Code PIX!',
+    });
+    return;
+  }
+
+  const tx = store.createPaymentTransaction({
+    userId: authUser.id,
+    packageId: pkg.id,
+  });
+
+  if (!tx) {
+    res.status(500).json({ error: 'Não foi possível registrar a transação.' });
+    return;
+  }
+
+  try {
+    const publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+    const mpBody: Record<string, unknown> = {
+      transaction_amount: Number(pkg.priceBrl.toFixed(2)),
+      description: `Pocket Corner - ${pkg.name} (@${authUser.username})`,
+      payment_method_id: 'pix',
+      external_reference: tx.id,
+      payer: {
+        email: authUser.email || `${authUser.username}@pocketcorner.app`,
+        first_name: authUser.displayName || authUser.username,
+      },
+    };
+
+    if (publicBaseUrl.startsWith('https://')) {
+      mpBody.notification_url = `${publicBaseUrl}/api/payments/webhook`;
+    }
+
+    const mpRes = await fetch('https://api.mercadopago.com/v1/payments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${mpToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': tx.id,
+      },
+      body: JSON.stringify(mpBody),
+    });
+
+    const mpData = (await mpRes.json()) as {
+      id?: number | string;
+      status?: string;
+      message?: string;
+      cause?: Array<{ description?: string }>;
+      point_of_interaction?: {
+        transaction_data?: {
+          qr_code?: string;
+          qr_code_base64?: string;
+          ticket_url?: string;
+        };
+      };
+    };
+
+    if (!mpRes.ok || !mpData.id) {
+      const detail =
+        mpData.cause?.[0]?.description ||
+        mpData.message ||
+        'Verifique se o seu MERCADOPAGO_ACCESS_TOKEN é de Produção (APP_USR-...) e se há chave PIX cadastrada na sua conta Mercado Pago.';
+      store.updatePaymentTransactionStatus(tx.id, 'REJECTED');
+      res.status(400).json({
+        error: `Erro do Mercado Pago: ${detail}`,
+      });
+      return;
+    }
+
+    store.setPaymentTransactionMpId(tx.id, String(mpData.id));
+    const txData = mpData.point_of_interaction?.transaction_data;
+
+    res.json({
+      ok: true,
+      txId: tx.id,
+      mpPaymentId: String(mpData.id),
+      packageName: pkg.name,
+      amountBrl: pkg.priceBrl,
+      qrCode: txData?.qr_code || '',
+      qrCodeBase64: txData?.qr_code_base64 || '',
+      ticketUrl: txData?.ticket_url || '',
+    });
+  } catch (err) {
+    console.error('[MercadoPago] Falha ao criar pagamento PIX:', err);
+    res.status(500).json({ error: `Falha ao conectar com Mercado Pago: ${(err as Error).message}` });
+  }
+});
+
+app.get('/api/payments/check/:txId', async (req, res) => {
+  const authUser = resolveAuthenticatedRequestUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Não autorizado.' });
+    return;
+  }
+
+  const txId = String(req.params.txId || '').trim();
+  const tx = store.getPaymentTransactionById(txId);
+  if (!tx || (tx.userId !== authUser.id && !store.isUserAdmin(authUser))) {
+    res.status(404).json({ error: 'Transação não encontrada.' });
+    return;
+  }
+
+  if (tx.status === 'APPROVED') {
+    res.json({ ok: true, status: 'APPROVED', approved: true });
+    return;
+  }
+
+  if (tx.mpPaymentId) {
+    const check = await verifyAndFulfillMercadoPagoPayment(tx.mpPaymentId, tx.id);
+    res.json(check);
+    return;
+  }
+
+  res.json({ ok: true, status: tx.status, approved: false });
+});
+
+app.post('/api/payments/webhook', async (req, res) => {
+  try {
+    const body = (req.body || {}) as {
+      type?: string;
+      action?: string;
+      data?: { id?: string | number };
+      id?: string | number;
+    };
+    const queryDataId = req.query['data.id'] || req.query.id;
+    const paymentId = body.data?.id || queryDataId || body.id;
+
+    if (paymentId) {
+      await verifyAndFulfillMercadoPagoPayment(String(paymentId));
+    }
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('[MercadoPago Webhook] Erro:', err);
+    res.status(200).json({ received: true });
+  }
+});
+
+// ==========================================
+// PAINEL DO ADMINISTRADOR (100% VALIDADO NO SERVIDOR)
+// NUNCA CONFIA NO FRONTEND: exige usuário Google autenticado cujo e-mail no banco
+// seja idêntico ao ADMIN_EMAIL definido no .env do servidor!
+// ==========================================
+app.get('/api/admin/dashboard', (req, res) => {
+  dotenv.config({ override: true });
+  const authUser = resolveAuthenticatedRequestUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Não autenticado. Faça login com sua conta Google.' });
+    return;
+  }
+
+  if (!store.isUserAdmin(authUser)) {
+    res.status(403).json({
+      error:
+        '⛔ Acesso negado pelo servidor: sua conta Google não está autorizada como ADMIN_EMAIL.',
+    });
+    return;
+  }
+
+  const data = store.getAdminDashboardData();
+  res.json({
+    ok: true,
+    adminEmail: authUser.email,
+    ...data,
+  });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -968,23 +1341,27 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     const updatedUser = store.getUserById(userId)!;
     socket.emit('auth:profile', updatedUser);
 
+    const claimedBonusCoins = result.item.meta?.bonusCoins ?? 0;
+
     io.to(`room:${userId}`).emit('room:desk_drop_claimed', {
       dropId,
       itemId: result.item.id,
       claimedByUserId: userId,
       speedBoostSec: result.item.meta?.speedBoostSec,
-      bonusCoins: result.item.meta?.bonusCoins ?? 10,
+      bonusCoins: claimedBonusCoins,
       note: result.drop.note,
     });
 
+    const coinMsg = claimedBonusCoins > 0 ? `+${claimedBonusCoins} 🪙` : '';
     const boostMsg = result.item.meta?.speedBoostSec
-      ? ` + Velocidade 2x por ${result.item.meta.speedBoostSec}s!`
+      ? `${coinMsg ? ' + ' : ''}Velocidade 2x por ${result.item.meta.speedBoostSec}s!`
       : '';
+    const effectParen = coinMsg || boostMsg ? ` (${coinMsg}${boostMsg})` : '';
     const noteMsg = result.drop.note ? ` Recado: "${result.drop.note}"` : '';
 
     socket.emit('system:toast', {
       type: 'success',
-      message: `${result.item.icon} Coletou ${result.item.name} de ${result.drop.fromDisplayName}! (+${result.item.meta?.bonusCoins ?? 10} 🪙${boostMsg})${noteMsg}`,
+      message: `${result.item.icon} Coletou ${result.item.name} de ${result.drop.fromDisplayName}!${effectParen}${noteMsg}`,
     });
 
     broadcastRoomState(userId);
@@ -1094,17 +1471,10 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
   });
 
   socket.on('economy:claim_starter_pack', () => {
-    const rl = store.consumeRateLimitToken(userId, 'economy:starter', 1, 4000);
-    if (!rl.allowed) return;
-    const u = store.getUserById(userId);
-    if (!u) return;
-    u.coins += 300;
-    u.gems += 250;
-    store.saveDB();
-    socket.emit('auth:profile', u);
     socket.emit('system:toast', {
-      type: 'success',
-      message: '🎁 Pacote de Suprimentos recebido: +300 🪙 Moedas Idle e +250 💎 Gems!',
+      type: 'info',
+      message:
+        '🪙 Você ganha 1 Moeda automaticamente a cada 5 minutos online! Pip Diamantes 💎 são adquiridos na Loja.',
     });
   });
 
@@ -1369,27 +1739,20 @@ function triggerBotEnterRoom(hostUserId: string) {
 }
 
 // ==========================================
-// PASSIVE IDLE CURRENCY TICK (3.3 Moeda Idle)
+// PASSIVE IDLE CURRENCY TICK (1 Moeda a cada 5 minutos online = 300.000 ms)
 // ==========================================
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
 setInterval(() => {
   for (const userId of store.onlineUsers) {
     if (userId === BOT_USER_ID) continue;
     const u = store.getUserById(userId);
     if (!u) continue;
 
-    const room = store.rooms.get(userId);
-    let visitorBonus = 0;
-    if (room) {
-      for (const pid of room.players.keys()) {
-        if (pid !== userId) visitorBonus += 2;
-      }
-    }
-
-    u.coins += 3 + visitorBonus;
+    u.coins += 1;
     emitToUser(userId, 'auth:profile', u);
   }
   store.saveDB();
-}, 15_000);
+}, FIVE_MINUTES_MS);
 
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {

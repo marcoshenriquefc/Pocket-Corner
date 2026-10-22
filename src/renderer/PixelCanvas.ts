@@ -1006,6 +1006,78 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-14, -34, 28, 12);
       ctx.fillStyle = colorOpt ? colorOpt.accent : '#fbcfe8';
       ctx.fillRect(-10, -38, 20, 8);
+    } else if (furn.itemId === 'furn_dj_booth') {
+      // 🎛️ Mesa de DJ Double D (Toca-discos duplos + Mixer + Subwoofers + Equalizador LED Frontal)
+      const boothBase = colorOpt ? colorOpt.primary : '#0f172a';
+      const goldTrim = colorOpt ? colorOpt.secondary : '#facc15';
+      const neonAccent = colorOpt ? colorOpt.accent : '#22d3ee';
+
+      // Side Subwoofers (Left & Right Speakers)
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-30, -26, 9, 26);
+      ctx.fillRect(21, -26, 9, 26);
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(-28, -23, 5, 8);
+      ctx.fillRect(-28, -12, 5, 9);
+      ctx.fillRect(23, -23, 5, 8);
+      ctx.fillRect(23, -12, 5, 9);
+      const speakerPulse = (this.tick >> 2) % 2 === 0 ? neonAccent : '#f472b6';
+      ctx.fillStyle = speakerPulse;
+      ctx.fillRect(-27, -20, 3, 3);
+      ctx.fillRect(-27, -9, 3, 3);
+      ctx.fillRect(24, -20, 3, 3);
+      ctx.fillRect(24, -9, 3, 3);
+
+      // Main DJ Booth Cabinet
+      ctx.fillStyle = boothBase;
+      ctx.fillRect(-21, -22, 42, 22);
+      // Golden top trim & base trim
+      ctx.fillStyle = goldTrim;
+      ctx.fillRect(-23, -24, 46, 3);
+      ctx.fillRect(-21, -2, 42, 2);
+
+      // Front Animated LED Equalizer Bars (7 columns)
+      const eqColors = ['#22d3ee', '#38bdf8', '#a855f7', '#ec4899', '#f43f5e', '#facc15', '#4ade80'];
+      for (let i = 0; i < 7; i++) {
+        const colX = -17 + i * 5;
+        const barH = 4 + Math.abs(Math.round(Math.sin(this.tick * 0.18 + i * 0.9) * 12));
+        ctx.fillStyle = eqColors[i % eqColors.length];
+        ctx.fillRect(colX, -3 - barH, 4, barH);
+      }
+
+      // Dual Vinyl Turntables on Top of Deck
+      const spinPhase = (this.tick >> 2) % 4;
+      // Left Turntable
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(-19, -28, 12, 4);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-15 + (spinPhase % 2), -27, 4, 2);
+      // Right Turntable
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(7, -28, 12, 4);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(11 + (spinPhase % 2), -27, 4, 2);
+
+      // Center Mixer & Raised DJ Laptop Stand
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-6, -27, 12, 3);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(-4, -26, 2, 1);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(0, -26, 2, 1);
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(3, -26, 2, 1);
+
+      // DJ Laptop Screen with Soundwave
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(-7, -37, 14, 10);
+      ctx.strokeStyle = goldTrim;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-7, -37, 14, 10);
+      ctx.fillStyle = neonAccent;
+      ctx.fillRect(-5, -33, 10, 2);
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(-3, -35 + (spinPhase % 2), 6, 2);
     }
 
     ctx.restore();
@@ -1332,6 +1404,209 @@ export class PixelCanvasRenderer {
         ctx.lineWidth = 2;
         ctx.strokeRect(hx - 3 + sway, 18, 8, 6);
       }
+    } else if (skinId === 'room_beco_rapariga') {
+      // 🪧 Beco da Rapariga (Fiel à arte enviada: Céu azul dithered + Muro pichado + Placa vermelha em 2 postes + Arbusto + Poste de luz)
+      // 1. Céu azul no topo (0..26) com efeito de dithering quadriculado na base do céu
+      ctx.fillStyle = '#2764c8';
+      ctx.fillRect(0, 0, W, 26);
+      ctx.fillStyle = '#4f8fe8';
+      for (let dy = 18; dy < 26; dy += 2) {
+        for (let dx = (dy % 4 === 0 ? 0 : 2); dx < W; dx += 4) {
+          ctx.fillRect(dx, dy, 2, 2);
+        }
+      }
+
+      // Nuvem branca pixelada no canto superior direito
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(268, 7, 36, 5);
+      ctx.fillRect(252, 11, 68, 5);
+      ctx.fillRect(240, 15, 92, 4);
+      ctx.fillStyle = '#c5d9f2';
+      ctx.fillRect(248, 19, 76, 3);
+
+      // 2. Viga de concreto superior (y = 25..31)
+      ctx.fillStyle = '#d6d6ce';
+      ctx.fillRect(0, 25, W, 5);
+      ctx.fillStyle = '#73787d';
+      ctx.fillRect(0, 30, W, 2);
+
+      // 3. Muro de concreto superior e inferior em dois tons com recorte diagonal serrilhado
+      ctx.fillStyle = '#9ca2a6';
+      ctx.fillRect(0, 32, W, floorY - 32);
+
+      // Sombra diagonal esquerda do muro (#6b7075)
+      ctx.fillStyle = '#6b7075';
+      for (let row = 0; row < 28; row++) {
+        const ry = 32 + row * 4;
+        const rw = Math.max(8, 122 - row * 4);
+        ctx.fillRect(0, ry, rw, 4);
+      }
+
+      // Viga horizontal divisória no meio do muro (y = 86..91)
+      ctx.fillStyle = '#d6d6ce';
+      ctx.fillRect(0, 86, W, 5);
+
+      // 4. Faixa inferior salpicada da calçada (y = floorY - 22 .. floorY)
+      const curbWallY = floorY - 22;
+      ctx.fillStyle = '#b8bcbd';
+      ctx.fillRect(0, curbWallY, W, 22);
+      ctx.fillStyle = '#8c9194';
+      const speckles = [
+        12, 28, 64, 112, 118, 134, 148, 166, 178, 196, 208, 222, 240, 288, 304, 336, 348,
+      ];
+      speckles.forEach((sx, i) => {
+        ctx.fillRect(sx, curbWallY + 3 + ((i * 5) % 15), 4, 2);
+        ctx.fillRect((sx + 17) % W, curbWallY + 6 + ((i * 7) % 12), 3, 2);
+      });
+
+      // 5. Caixinha elétrica branca com disjuntor vermelho (ao lado da placa)
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(128, 97, 12, 16);
+      ctx.fillStyle = '#b91c1c';
+      ctx.fillRect(131, 99, 6, 7);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(133, 108, 2, 2);
+
+      // 6. Pichações / Grafites de Rua em Pixel Art (Preto, Rosa e Vermelho)
+      ctx.fillStyle = '#181b1e';
+      // Traços verticais/diagonais angulares de pichação no muro
+      const tagStrokes: Array<[number, number, number, number]> = [
+        [152, 92, 3, 12],
+        [155, 100, 3, 14],
+        [146, 112, 6, 3],
+        [143, 115, 3, 12],
+        [176, 95, 3, 12],
+        [179, 105, 3, 16],
+        [182, 115, 3, 10],
+        [185, 104, 3, 12],
+        [188, 96, 3, 10],
+        [194, 104, 3, 14],
+        [197, 114, 3, 12],
+        [204, 102, 3, 12],
+        [210, 96, 3, 14],
+        [216, 104, 3, 18],
+        [232, 94, 3, 16],
+        [238, 104, 3, 14],
+        [248, 97, 3, 15],
+        [254, 105, 3, 14],
+        [324, 100, 3, 16],
+        [329, 108, 3, 14],
+        [335, 102, 3, 14],
+        [345, 96, 3, 24],
+      ];
+      for (const [tx, ty, tw, th] of tagStrokes) {
+        ctx.fillRect(tx, ty, tw, th);
+      }
+
+      // Símbolo circular / alvo pichado à direita
+      ctx.strokeStyle = '#181b1e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(266, 103, 24, 19);
+      ctx.strokeRect(272, 107, 12, 11);
+      ctx.fillRect(276, 96, 3, 16);
+
+      // Zig-zag rosa neon pichado por cima
+      ctx.fillStyle = '#e86f9a';
+      ctx.fillRect(136, 119, 8, 3);
+      ctx.fillRect(144, 116, 8, 3);
+      ctx.fillRect(152, 113, 6, 3);
+      ctx.fillRect(158, 117, 5, 5);
+      ctx.fillRect(163, 122, 6, 4);
+      ctx.fillRect(169, 118, 6, 3);
+      ctx.fillRect(175, 114, 6, 3);
+
+      // Rabisco vermelho no canto esquerdo e pichação na base esquerda
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(8, 122, 4, 6);
+      ctx.fillRect(12, 126, 4, 8);
+      ctx.fillRect(9, 132, 4, 5);
+      ctx.fillStyle = '#181b1e';
+      ctx.fillRect(10, curbWallY + 2, 3, 12);
+      ctx.fillRect(14, curbWallY + 8, 3, 9);
+      ctx.fillRect(22, curbWallY + 4, 3, 11);
+      ctx.fillRect(48, curbWallY + 6, 3, 10);
+      ctx.fillRect(54, curbWallY + 3, 3, 12);
+      ctx.fillRect(62, curbWallY + 7, 3, 9);
+
+      // 7. Dois postes verticais cinza-claros que sustentam a placa até o chão
+      ctx.fillStyle = '#b4b4ac';
+      ctx.fillRect(36, 86, 8, floorY - 86);
+      ctx.fillRect(92, 86, 8, floorY - 86);
+      ctx.fillStyle = '#d4d4cc';
+      ctx.fillRect(38, 86, 4, floorY - 86);
+      ctx.fillRect(94, 86, 4, floorY - 86);
+
+      // 8. Placa Vermelha/Marrom Icônica (Exatamente como na imagem!)
+      // Moldura externa marrom-escura
+      ctx.fillStyle = '#5c1916';
+      ctx.fillRect(16, 52, 104, 36);
+      // Borda interna clara
+      ctx.fillStyle = '#9e473e';
+      ctx.fillRect(19, 55, 98, 30);
+      // Fundo vermelho-tijolo
+      ctx.fillStyle = '#7f231c';
+      ctx.fillRect(21, 57, 94, 26);
+
+      // Quadrado branco superior na placa com o ícone preto pixelado
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(44, 59, 48, 13);
+      ctx.fillStyle = '#111827';
+      // Cabeça/topo do símbolo preto
+      ctx.fillRect(61, 60, 14, 6);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(64, 62, 8, 2);
+      // Base/pernas simétricas do símbolo preto
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(54, 66, 9, 5);
+      ctx.fillRect(73, 66, 9, 5);
+
+      // Três linhas de barras de texto brancas na parte inferior da placa
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(36, 74, 18, 2);
+      ctx.fillRect(58, 74, 18, 2);
+      ctx.fillRect(80, 74, 20, 2);
+
+      ctx.fillRect(36, 78, 26, 2);
+      ctx.fillRect(66, 78, 34, 2);
+
+      ctx.fillRect(36, 81, 64, 2);
+
+      // 9. Arbusto verde pontiagudo na calçada (direita)
+      ctx.fillStyle = '#275927';
+      ctx.fillRect(248, floorY - 10, 26, 10);
+      ctx.fillStyle = '#3b7a2e';
+      // Folhas pontiagudas abrindo em leque
+      ctx.fillRect(258, floorY - 22, 6, 14);
+      ctx.fillRect(246, floorY - 20, 5, 12);
+      ctx.fillRect(270, floorY - 20, 5, 12);
+      ctx.fillRect(236, floorY - 15, 8, 7);
+      ctx.fillRect(278, floorY - 15, 8, 7);
+      ctx.fillStyle = '#539e3f';
+      ctx.fillRect(228, floorY - 11, 8, 4);
+      ctx.fillRect(286, floorY - 11, 8, 4);
+      ctx.fillRect(260, floorY - 22, 3, 10);
+
+      // 10. Poste baixo cinza-escuro com lâmpada amarela acesa à direita
+      ctx.fillStyle = '#323a47';
+      ctx.fillRect(300, floorY - 4, 32, 4);
+      ctx.fillStyle = '#3b4454';
+      ctx.fillRect(308, floorY - 32, 11, 28);
+      ctx.fillRect(308, floorY - 32, 30, 8);
+      ctx.fillRect(328, floorY - 24, 10, 4);
+      // Lâmpada amarela brilhante + halo suave
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(328, floorY - 20, 7, 4);
+      ctx.save();
+      ctx.globalAlpha = 0.18 + Math.sin(this.tick * 0.08) * 0.05;
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.moveTo(327, floorY - 16);
+      ctx.lineTo(336, floorY - 16);
+      ctx.lineTo(346, floorY);
+      ctx.lineTo(316, floorY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     } else {
       // Default: Cozy Lofi Night Studio (room_cozy_desk)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
@@ -1385,7 +1660,18 @@ export class PixelCanvasRenderer {
     floorY: number
   ) {
     const fh = PixelCanvasRenderer.FLOOR_HEIGHT;
-    if (skinId === 'room_forest_campfire' || skinId === 'room_dense_forest') {
+    if (skinId === 'room_beco_rapariga') {
+      // Meio-fio e calçada cinza urbana com frestas verticais (fiel à imagem!)
+      ctx.fillStyle = '#6c7582';
+      ctx.fillRect(0, floorY, W, fh);
+      ctx.fillStyle = '#59616e';
+      ctx.fillRect(0, floorY, W, 3);
+      ctx.fillStyle = '#4e5661';
+      for (let px = 8; px < W; px += 20) {
+        ctx.fillRect(px, floorY + 3, 4, fh - 3);
+        ctx.fillRect(px + 10, floorY + 7, 3, fh - 7);
+      }
+    } else if (skinId === 'room_forest_campfire' || skinId === 'room_dense_forest') {
       ctx.fillStyle = '#14532d';
       ctx.fillRect(0, floorY, W, fh);
       ctx.fillStyle = '#22c55e';
@@ -1793,6 +2079,89 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-7, baseTop + 7, 14, 5);
       ctx.fillStyle = '#22d3ee';
       ctx.fillRect(-1, baseTop, 2, 4);
+    } else if (bodyId === 'body_dj_double_d') {
+      // 🎧 DJ Double D (Skin Lendária Deslumbrante Exclusiva!)
+      const beatPulse = Math.sin(this.tick * 0.22);
+      const neonColors = ['#22d3ee', '#f472b6', '#facc15', '#a855f7'];
+      const activeNeon = neonColors[(this.tick >> 3) % neonColors.length];
+      const secondaryNeon = neonColors[((this.tick >> 3) + 2) % neonColors.length];
+
+      // 1. Holographic Neon Floor Aura Ring
+      ctx.save();
+      ctx.globalAlpha = 0.45 + beatPulse * 0.15;
+      ctx.fillStyle = activeNeon;
+      ctx.fillRect(-14, -3, 28, 3);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-10, -4, 20, 2);
+      ctx.restore();
+
+      // 2. Floating Golden/Neon Soundwave Wings & Musical Particles
+      const noteBob = Math.round(Math.sin(this.tick * 0.16) * 3);
+      ctx.fillStyle = activeNeon;
+      ctx.fillRect(-15, baseTop + 8 + noteBob, 3, 8);
+      ctx.fillRect(12, baseTop + 8 - noteBob, 3, 8);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-13, baseTop - 2 + noteBob, 3, 3);
+      ctx.fillRect(-11, baseTop - 4 + noteBob, 2, 3);
+      ctx.fillRect(11, baseTop - 3 - noteBob, 3, 3);
+
+      // 3. Cyber-Gold & Obsidian DJ Jacket (Torso)
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(-9, baseTop + 12, 18, 12);
+      // Golden High-Collar Lapels & Shoulder Pads
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(-10, baseTop + 11, 4, 12);
+      ctx.fillRect(6, baseTop + 11, 4, 12);
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(-10, baseTop + 11, 3, 3);
+      ctx.fillRect(7, baseTop + 11, 3, 3);
+
+      // Golden DJ Chain on Chest + Animated Equalizer Shirt
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-4, baseTop + 13, 8, 2);
+      for (let b = 0; b < 4; b++) {
+        const bh = 2 + ((this.tick + b * 3) % 5);
+        ctx.fillStyle = neonColors[b % neonColors.length];
+        ctx.fillRect(-4 + b * 2, baseTop + 23 - bh, 2, bh);
+      }
+
+      // 4. Head & Spiky Gold-Tipped Hair
+      ctx.fillStyle = '#fed7aa';
+      ctx.fillRect(-7, baseTop + 2, 14, 10);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(-8, baseTop - 1, 16, 4);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-6, baseTop - 3, 4, 2);
+      ctx.fillRect(0, baseTop - 4, 4, 3);
+      ctx.fillRect(5, baseTop - 2, 3, 2);
+
+      // 5. Dazzling LED Equalizer Visor Shades
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(-7, baseTop + 5, 14, 5);
+      ctx.fillStyle = activeNeon;
+      ctx.fillRect(dir * 1 - 5, baseTop + 6, 5, 3);
+      ctx.fillStyle = secondaryNeon;
+      ctx.fillRect(dir * 1 + 1, baseTop + 6, 5, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(dir * 2 - 4, baseTop + 6, 2, 1);
+      ctx.fillRect(dir * 2 + 2, baseTop + 6, 2, 1);
+
+      // 6. Built-in Royal Gold & Neon DJ Headphones
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-10, baseTop, 20, 2);
+      ctx.fillRect(-11, baseTop + 2, 4, 8);
+      ctx.fillRect(7, baseTop + 2, 4, 8);
+      ctx.fillStyle = activeNeon;
+      ctx.fillRect(-10, baseTop + 4, 2, 4);
+      ctx.fillRect(8, baseTop + 4, 2, 4);
+
+      // 7. Gold & Neon Sneakers
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-7, -4, 5, 4);
+      ctx.fillRect(2, -4, 5, 4);
+      ctx.fillStyle = activeNeon;
+      ctx.fillRect(-7, -1, 5, 1);
+      ctx.fillRect(2, -1, 5, 1);
     } else {
       // Default: Humano Cozy
       ctx.fillStyle = '#fed7aa';

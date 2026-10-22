@@ -4,6 +4,7 @@ import {
   COSMETIC_CATALOG,
   FURNITURE_COLOR_PALETTE,
   GACHAPON_COST_COINS,
+  REAL_MONEY_PACKAGES,
   getCosmeticById,
 } from './shared/catalog';
 import {
@@ -15,16 +16,19 @@ import {
   IdleActivity,
   KnockRequest,
   OnlineDirectoryEntry,
+  PaymentTransactionRecord,
+  RealMoneyPackage,
   RoomSnapshot,
   ServerToClientEvents,
+  ShopPurchaseLogRecord,
   UserProfile,
 } from './shared/types';
 import { soundEngine } from './audio/soundEngine';
 import { getApiBaseUrl, windowBridge } from './bridge/windowBridge';
 import { PixelCanvasRenderer } from './renderer/PixelCanvas';
 
-type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE';
-type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS';
+type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE' | 'ADMIN';
+type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS' | 'DIAMANTES';
 type ShopSubTab =
   | 'PIP'
   | 'CABECA'
@@ -35,9 +39,12 @@ type ShopSubTab =
   | 'EFEITOS'
   | 'CHAT'
   | 'PRESENTES'
-  | 'GACHA';
+  | 'GACHA'
+  | 'PACOTES_VIP'
+  | 'DIAMANTES_PACKS';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
+type AdminTab = 'TRANSACTIONS' | 'PURCHASES';
 
 interface AuthSession {
   mode: 'google' | 'local';
@@ -47,6 +54,35 @@ interface AuthSession {
   picture?: string;
   username: string;
   displayName: string;
+  sessionToken?: string;
+}
+
+interface ActivePixCheckout {
+  txId: string;
+  mpPaymentId: string;
+  packageName: string;
+  amountBrl: number;
+  qrCode: string;
+  qrCodeBase64: string;
+  ticketUrl?: string;
+  checking?: boolean;
+}
+
+interface AdminDashboardState {
+  loading: boolean;
+  error?: string;
+  adminEmail?: string;
+  summary?: {
+    totalApprovedBrl: number;
+    approvedCount: number;
+    pendingCount: number;
+    totalTransactions: number;
+    totalGemsSold: number;
+    totalShopPurchases: number;
+    totalRegisteredUsers: number;
+  };
+  paymentTransactions: PaymentTransactionRecord[];
+  shopPurchaseLogs: ShopPurchaseLogRecord[];
 }
 
 declare global {
@@ -91,12 +127,24 @@ class PocketCornerApp {
     (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_GOOGLE_CLIENT_ID || ''
   ).trim();
   private mongoConnected = false;
+  private mercadoPagoConfigured = false;
 
   private activeModal: ActiveModal = 'NONE';
   private shopTab: ShopTab = 'APARENCIA';
   private shopSubTab: ShopSubTab = 'PIP';
   private friendsTab: FriendsTab = 'ONLINE';
   private backpackTab: BackpackTab = 'AVATAR';
+  private adminTab: AdminTab = 'TRANSACTIONS';
+
+  private activePixCheckout: ActivePixCheckout | null = null;
+  private pixCreatingPackageId: string | null = null;
+  private pixPollTimer: number | null = null;
+
+  private adminDashboard: AdminDashboardState = {
+    loading: false,
+    paymentTransactions: [],
+    shopPurchaseLogs: [],
+  };
 
   private selectedTargetUserId: string | null = null;
   private autoIdleOnBlur = true;
@@ -145,11 +193,16 @@ class PocketCornerApp {
       const res = await fetch(`${baseUrl}/api/auth/config`, { signal: ctrl.signal });
       clearTimeout(timer);
       if (res.ok) {
-        const cfg = (await res.json()) as { googleClientId?: string; mongoConnected?: boolean };
+        const cfg = (await res.json()) as {
+          googleClientId?: string;
+          mongoConnected?: boolean;
+          mercadoPagoConfigured?: boolean;
+        };
         if (cfg.googleClientId) {
           this.googleClientId = cfg.googleClientId.trim();
         }
         this.mongoConnected = Boolean(cfg.mongoConnected);
+        this.mercadoPagoConfigured = Boolean(cfg.mercadoPagoConfigured);
       }
     } catch {
       // Ignora erro de rede inicial
@@ -174,12 +227,29 @@ class PocketCornerApp {
           picture: parsed.picture,
           username: parsed.username || 'jogador',
           displayName: parsed.displayName || parsed.googleName || parsed.username || 'Jogador',
+          sessionToken: parsed.sessionToken,
         };
       }
     } catch {
       return null;
     }
     return null;
+  }
+
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.authSession?.sessionToken) {
+      headers.Authorization = `Bearer ${this.authSession.sessionToken}`;
+    }
+    if (this.profile?.id) {
+      headers['x-user-id'] = this.profile.id;
+    }
+    if (this.profile?.googleId || this.authSession?.googleId) {
+      headers['x-google-id'] = (this.profile?.googleId || this.authSession?.googleId || '').trim();
+    }
+    return headers;
   }
 
   private saveAuthSession(session: AuthSession) {
@@ -304,7 +374,12 @@ class PocketCornerApp {
         body: JSON.stringify({ credential }),
       });
 
-      const data = (await res.json()) as { ok?: boolean; profile?: UserProfile; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        profile?: UserProfile;
+        sessionToken?: string;
+        error?: string;
+      };
       if (!res.ok || !data.profile) {
         this.showToast('error', data.error || 'Falha ao autenticar com o Google.');
         return;
@@ -319,6 +394,7 @@ class PocketCornerApp {
         picture: p.picture,
         username: p.username,
         displayName: p.displayName,
+        sessionToken: data.sessionToken,
       });
 
       this.hideLoginScreen();
@@ -760,8 +836,17 @@ class PocketCornerApp {
       </div>
 
       <div class="topbar-right">
-        <span class="currency-pill coins" title="Moedas Idle">🪙 ${this.profile.coins}</span>
-        <span class="currency-pill gems" title="Gems">💎 ${this.profile.gems}</span>
+        <span class="currency-pill coins" title="Moedas Idle (+1 a cada 5 min online)">🪙 ${this.profile.coins}</span>
+        <button class="currency-pill gems" id="btn-top-buy-gems" style="cursor: pointer;" title="Pip Diamantes — Clique para recarregar ou ver o Double D Pack">
+          💎 ${this.profile.gems} <span style="font-size:0.65rem; opacity:0.85;">+</span>
+        </button>
+        ${
+          this.profile.isAdmin
+            ? `<button class="btn btn-sm btn-gold" id="btn-top-admin" title="Painel do Administrador (Validado pelo Servidor)">
+                🛡️ Admin
+              </button>`
+            : ''
+        }
         <button class="btn btn-icon ${soundEngine.muted ? '' : 'active-toggle'}" id="btn-top-mute" title="Som">
           ${soundEngine.muted ? '🔇' : '🔊'}
         </button>
@@ -776,6 +861,16 @@ class PocketCornerApp {
 
     document.getElementById('btn-open-profile')?.addEventListener('click', () => {
       this.openModal('PROFILE');
+    });
+
+    document.getElementById('btn-top-buy-gems')?.addEventListener('click', () => {
+      this.shopTab = 'DIAMANTES';
+      this.shopSubTab = 'PACOTES_VIP';
+      this.openModal('SHOP');
+    });
+
+    document.getElementById('btn-top-admin')?.addEventListener('click', () => {
+      this.openModal('ADMIN');
     });
 
     document.getElementById('btn-top-home')?.addEventListener('click', () => {
@@ -887,6 +982,9 @@ class PocketCornerApp {
   private openModal(modal: ActiveModal) {
     this.activeModal = modal;
     this.renderFloatingDock();
+    if (modal === 'ADMIN') {
+      void this.fetchAdminDashboard();
+    }
     this.renderActiveModal();
     if (modal === 'BACKPACK') {
       this.startPreviewLoop();
@@ -898,6 +996,7 @@ class PocketCornerApp {
   private closeModal() {
     this.activeModal = 'NONE';
     this.stopPreviewLoop();
+    this.stopPixPoll();
     this.modalRootEl.innerHTML = '';
     this.renderFloatingDock();
   }
@@ -932,6 +1031,8 @@ class PocketCornerApp {
       this.renderBackpackPopup();
     } else if (this.activeModal === 'PROFILE') {
       this.renderProfilePopup();
+    } else if (this.activeModal === 'ADMIN') {
+      this.renderAdminPopup();
     } else {
       this.modalRootEl.innerHTML = '';
     }
@@ -968,7 +1069,7 @@ class PocketCornerApp {
   }
 
   // ------------------------------------------
-  // 1. POPUP "🛍️ LOJA" (Separada por Aparência, Meu Cantinho e Outros + Sub-abas)
+  // 1. POPUP "🛍️ LOJA" (Separada por Aparência, Meu Cantinho, Outros e Pip Diamantes & VIP)
   // ------------------------------------------
   private renderShopPopup() {
     if (!this.profile) return;
@@ -1019,7 +1120,7 @@ class PocketCornerApp {
           icon: '🖼️',
           label: 'Cenário',
           category: 'room_skin',
-          description: 'Temas completos de ambiente: Floresta Densa, Escritório, Fundo do Mar e mais',
+          description: 'Temas completos de ambiente: Floresta Densa, Escritório, Beco da Rapariga e mais',
         },
       ],
       OUTROS: [
@@ -1055,7 +1156,21 @@ class PocketCornerApp {
           id: 'GACHA',
           icon: '🎰',
           label: 'Cápsula Surpresa',
-          description: 'Sorteie qualquer item do catálogo com desconto usando suas Moedas Idle',
+          description: 'Sorteie itens de Moedas Idle com desconto! (Itens de Diamante e Pacotes VIP são exclusivos)',
+        },
+      ],
+      DIAMANTES: [
+        {
+          id: 'PACOTES_VIP',
+          icon: '💿',
+          label: 'Double D Pack (Exclusivo)',
+          description: 'Pacote lendário exclusivo com Skin DJ Double D + Cenário Beco da Rapariga + Mesa de DJ!',
+        },
+        {
+          id: 'DIAMANTES_PACKS',
+          icon: '💎',
+          label: 'Pip Diamantes (PIX)',
+          description: 'Adquira Pip Diamantes instantaneamente via PIX para desbloquear itens especiais na loja!',
         },
       ],
     };
@@ -1079,14 +1194,14 @@ class PocketCornerApp {
           <span>Loja</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="currency-pill coins" id="shop-coins-pill">🪙 ${this.profile.coins}</span>
+          <span class="currency-pill coins" id="shop-coins-pill" title="+1 moeda a cada 5 minutos online">🪙 ${this.profile.coins}</span>
           <span class="currency-pill gems" id="shop-gems-pill">💎 ${this.profile.gems}</span>
-          <button class="btn btn-sm btn-gold" id="btn-shop-free-coins">+Moedas Grátis</button>
+          <button class="btn btn-sm btn-primary" id="btn-shop-goto-gems">💎 +Diamantes / VIP</button>
           <button class="btn btn-icon" id="btn-close-modal">✕</button>
         </div>
       </div>
 
-      <!-- Abas Principais: Aparência | Meu Cantinho | Outros -->
+      <!-- Abas Principais: Aparência | Meu Cantinho | Outros | Pip Diamantes & VIP -->
       <div class="popup-tabs">
         <button class="popup-tab ${this.shopTab === 'APARENCIA' ? 'active' : ''}" data-shop-tab="APARENCIA">
           ✨ Aparência
@@ -1096,6 +1211,9 @@ class PocketCornerApp {
         </button>
         <button class="popup-tab ${this.shopTab === 'OUTROS' ? 'active' : ''}" data-shop-tab="OUTROS">
           🎁 Outros
+        </button>
+        <button class="popup-tab ${this.shopTab === 'DIAMANTES' ? 'active' : ''}" data-shop-tab="DIAMANTES" style="color: var(--accent-gold);">
+          💎 Pip Diamantes & VIP
         </button>
       </div>
 
@@ -1135,39 +1253,45 @@ class PocketCornerApp {
               ? `<span style="font-size: 0.7rem; color: var(--text-muted); white-space: nowrap;">
                   ${items.filter((i) => this.profile!.inventory.includes(i.id)).length}/${items.length} adquiridos
                 </span>`
-              : ''
+              : `<span style="font-size: 0.68rem; color: var(--accent-gold); white-space: nowrap;">
+                  🪙 +1 Moeda / 5 min online
+                </span>`
           }
         </div>
 
         ${
-          this.shopSubTab === 'GACHA'
-            ? `
-              <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
-                <div style="font-size: 3rem;">🎰</div>
-                <div style="font-size: 1rem; font-weight: 700; color: var(--accent-gold);">
-                  Máquina de Cápsulas Surpresa
+          this.shopTab === 'DIAMANTES'
+            ? this.renderShopRealMoneySection()
+            : this.shopSubTab === 'GACHA'
+              ? `
+                <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+                  <div style="font-size: 3rem;">🎰</div>
+                  <div style="font-size: 1rem; font-weight: 700; color: var(--accent-gold);">
+                    Máquina de Cápsulas Surpresa
+                  </div>
+                  <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 420px;">
+                    Sorteie cosméticos de Moedas do catálogo! Itens repetidos devolvem metade do valor.
+                  </div>
+                  <button class="btn btn-primary" id="btn-roll-gachapon" style="padding: 10px 24px; font-size: 0.88rem;">
+                    Girar Cápsula (${GACHAPON_COST_COINS} 🪙)
+                  </button>
                 </div>
-                <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 420px;">
-                  Sorteie qualquer cosmético do catálogo usando suas Moedas Idle! Itens repetidos devolvem metade do valor.
+              `
+              : `
+                <div class="items-grid">
+                  ${items.map((item) => this.renderCatalogItemCard(item)).join('')}
                 </div>
-                <button class="btn btn-primary" id="btn-roll-gachapon" style="padding: 10px 24px; font-size: 0.88rem;">
-                  Girar Cápsula (${GACHAPON_COST_COINS} 🪙)
-                </button>
-              </div>
-            `
-            : `
-              <div class="items-grid">
-                ${items.map((item) => this.renderCatalogItemCard(item)).join('')}
-              </div>
-            `
+              `
         }
       </div>
     `);
 
     this.bindCommonPopupEvents();
 
-    document.getElementById('btn-shop-free-coins')?.addEventListener('click', () => {
-      this.socket.emit('economy:claim_starter_pack');
+    document.getElementById('btn-shop-goto-gems')?.addEventListener('click', () => {
+      this.shopTab = 'DIAMANTES';
+      this.shopSubTab = 'DIAMANTES_PACKS';
+      this.renderShopPopup();
     });
 
     document.getElementById('btn-roll-gachapon')?.addEventListener('click', () => {
@@ -1200,6 +1324,304 @@ class PocketCornerApp {
     });
 
     this.bindItemActionButtons();
+    this.bindRealMoneyEvents();
+  }
+
+  private formatBrl(val: number): string {
+    return `R$ ${val.toFixed(2).replace('.', ',')}`;
+  }
+
+  private renderShopRealMoneySection(): string {
+    if (!this.profile) return '';
+
+    const doubleDPack = REAL_MONEY_PACKAGES.find((p) => p.id === 'pkg_double_d');
+    const gemPackages = REAL_MONEY_PACKAGES.filter((p) => p.id !== 'pkg_double_d');
+    const ownsDoubleD =
+      (doubleDPack?.grantedItemIds || []).every((id) => this.profile!.inventory.includes(id)) ||
+      false;
+
+    const pixCheckoutHtml = this.activePixCheckout
+      ? `
+        <div class="pix-checkout-box">
+          <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+            <div style="font-size: 0.85rem; font-weight: 800; color: var(--accent-green);">
+              💠 Pagamento PIX Instantâneo — ${this.escapeHtml(this.activePixCheckout.packageName)} (${this.formatBrl(this.activePixCheckout.amountBrl)})
+            </div>
+            <button class="btn btn-sm btn-danger" id="btn-cancel-pix">Fechar PIX</button>
+          </div>
+          ${
+            this.activePixCheckout.qrCodeBase64
+              ? `<img class="pix-qr-img" src="data:image/png;base64,${this.activePixCheckout.qrCodeBase64}" alt="QR Code PIX" />`
+              : ''
+          }
+          <div style="font-size: 0.74rem; color: var(--text-secondary);">
+            Escaneie o QR Code acima com o app do seu banco ou copie o código PIX Copia e Cola abaixo:
+          </div>
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <input
+              type="text"
+              readonly
+              class="chat-input-minimal"
+              style="flex: 1; background: rgba(0,0,0,0.35); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px; font-size: 0.7rem; color: var(--accent-cyan);"
+              value="${this.escapeHtml(this.activePixCheckout.qrCode)}"
+            />
+            <button class="btn btn-sm btn-primary" id="btn-copy-pix-code">📋 Copiar PIX</button>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 600;">
+            ⏳ Aguardando confirmação automática do banco... Assim que pagar, seus itens/diamantes caem na hora!
+          </div>
+        </div>
+      `
+      : '';
+
+    if (this.shopSubTab === 'PACOTES_VIP' && doubleDPack) {
+      const doubleDPriceStr = this.formatBrl(doubleDPack.priceBrl);
+      return `
+        ${pixCheckoutHtml}
+        <div class="double-d-hero">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <span class="rarity-badge rarity-LEGENDARY" style="font-size: 0.68rem; padding: 3px 8px;">
+                ★ PACOTE LENDÁRIO EXCLUSIVO • SOMENTE DINHEIRO REAL
+              </span>
+              <h3 style="margin: 8px 0 4px; font-size: 1.18rem; color: #fde047;">
+                💿 ${this.escapeHtml(doubleDPack.name)}
+              </h3>
+              <p style="margin: 0; font-size: 0.76rem; color: var(--text-secondary); max-width: 500px;">
+                ${this.escapeHtml(doubleDPack.description)}
+              </p>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Valor Único</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--accent-gold);">
+                ${doubleDPriceStr}
+              </div>
+            </div>
+          </div>
+
+          <div class="double-d-items-row">
+            <div class="double-d-mini-card">
+              <div style="font-size: 1.5rem;">🎧</div>
+              <div style="font-size: 0.76rem; font-weight: 700; color: #fde047;">Skin DJ Double D</div>
+              <div style="font-size: 0.68rem; color: var(--text-secondary);">
+                Jaqueta Cyber-Ouro, visor LED equalizador animado, fones de ouro e aura neon nos pés!
+              </div>
+            </div>
+            <div class="double-d-mini-card">
+              <div style="font-size: 1.5rem;">🛹</div>
+              <div style="font-size: 0.76rem; font-weight: 700; color: #f472b6;">Cenário Beco da Rapariga</div>
+              <div style="font-size: 0.68rem; color: var(--text-secondary);">
+                Cenário urbano fiel em pixel art com grafite, muro em 2 tons, placa de rua, poste iluminado e calçada!
+              </div>
+            </div>
+            <div class="double-d-mini-card">
+              <div style="font-size: 1.5rem;">🎛️</div>
+              <div style="font-size: 0.76rem; font-weight: 700; color: #38bdf8;">Mesa de DJ Double D</div>
+              <div style="font-size: 0.68rem; color: var(--text-secondary);">
+                Móvel interativo com 2 pick-ups girando, caixas de som e painel frontal de LEDs pulsantes!
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px;">
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">
+              🔒 <b>Exclusividade Garantida:</b> Não pode ser comprado com moedas nem diamantes.
+            </div>
+            ${
+              ownsDoubleD
+                ? `<div style="display: flex; gap: 8px; align-items: center;">
+                    <span class="btn btn-sm active-toggle">✓ Pacote Adquirido</span>
+                    <button class="btn btn-sm btn-gold" id="btn-equip-double-d-all">
+                      ✨ Equipar Skin + Cenário + Mesa de DJ
+                    </button>
+                  </div>`
+                : `<button
+                    class="btn btn-gold"
+                    data-buy-real-pkg="${doubleDPack.id}"
+                    style="padding: 10px 20px; font-size: 0.84rem;"
+                    ${this.pixCreatingPackageId === doubleDPack.id ? 'disabled' : ''}
+                  >
+                    ${
+                      this.pixCreatingPackageId === doubleDPack.id
+                        ? 'Gerando PIX...'
+                        : `Comprar Double D Pack via PIX (${doubleDPriceStr})`
+                    }
+                  </button>`
+            }
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      ${pixCheckoutHtml}
+      <div class="items-grid">
+        ${gemPackages
+          .map((pkg) => {
+            const isLoading = this.pixCreatingPackageId === pkg.id;
+            const gemsCount = pkg.gemsAmount || 0;
+            const priceStr = this.formatBrl(pkg.priceBrl);
+            return `
+              <div class="item-card" style="border-color: ${pkg.isTestItem ? 'rgba(56, 189, 248, 0.4)' : 'rgba(245, 158, 11, 0.35)'};">
+                <div class="item-icon" style="font-size: 1.6rem;">${pkg.icon}</div>
+                <div class="item-info">
+                  <div class="item-name">
+                    ${this.escapeHtml(pkg.name)}
+                    ${
+                      pkg.badgeText
+                        ? `<span class="rarity-badge ${pkg.isTestItem ? 'rarity-RARE' : 'rarity-LEGENDARY'}">${this.escapeHtml(pkg.badgeText)}</span>`
+                        : ''
+                    }
+                  </div>
+                  <div class="item-sub">${this.escapeHtml(pkg.description)}</div>
+                  <div style="font-size: 0.74rem; font-weight: 700; color: var(--accent-purple); margin-top: 3px;">
+                    Recebe: 💎 ${gemsCount} Pip Diamante${gemsCount > 1 ? 's' : ''}
+                  </div>
+                </div>
+                <div>
+                  <button
+                    class="btn btn-sm btn-gold"
+                    data-buy-real-pkg="${pkg.id}"
+                    ${isLoading ? 'disabled' : ''}
+                  >
+                    ${isLoading ? 'Gerando...' : priceStr}
+                  </button>
+                </div>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
+  private bindRealMoneyEvents() {
+    this.modalRootEl.querySelectorAll('[data-buy-real-pkg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const packageId = (btn as HTMLElement).dataset.buyRealPkg!;
+        void this.startPixCheckout(packageId);
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-open-double-d]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.shopTab = 'DIAMANTES';
+        this.shopSubTab = 'PACOTES_VIP';
+        this.renderShopPopup();
+      });
+    });
+
+    document.getElementById('btn-equip-double-d-all')?.addEventListener('click', () => {
+      this.socket.emit('inventory:equip', { itemId: 'body_dj_double_d' });
+      this.socket.emit('inventory:equip', { itemId: 'room_beco_rapariga' });
+      const alreadyPlaced = (this.profile?.placedFurniture || []).some(
+        (f) => f.itemId === 'furn_dj_booth'
+      );
+      if (!alreadyPlaced) {
+        this.socket.emit('furniture:place', { itemId: 'furn_dj_booth', x: 250 });
+      }
+      this.showToast('success', '💿 Skin DJ Double D + Beco da Rapariga + Mesa de DJ ativados!');
+    });
+
+    document.getElementById('btn-copy-pix-code')?.addEventListener('click', () => {
+      if (!this.activePixCheckout?.qrCode) return;
+      navigator.clipboard.writeText(this.activePixCheckout.qrCode).then(() => {
+        this.showToast('success', '📋 Código PIX Copia e Cola copiado!');
+      });
+    });
+
+    document.getElementById('btn-cancel-pix')?.addEventListener('click', () => {
+      this.stopPixPoll();
+      this.activePixCheckout = null;
+      this.renderShopPopup();
+    });
+  }
+
+  private async startPixCheckout(packageId: string) {
+    if (!this.profile) return;
+    this.pixCreatingPackageId = packageId;
+    this.renderShopPopup();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/payments/create`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ packageId }),
+      });
+
+      const data = (await res.json()) as {
+        ok?: boolean;
+        txId?: string;
+        mpPaymentId?: string;
+        packageName?: string;
+        amountBrl?: number;
+        qrCode?: string;
+        qrCodeBase64?: string;
+        ticketUrl?: string;
+        error?: string;
+      };
+
+      this.pixCreatingPackageId = null;
+
+      if (!res.ok || !data.ok || !data.txId) {
+        this.showToast('error', data.error || 'Não foi possível gerar o PIX.');
+        this.renderShopPopup();
+        return;
+      }
+
+      this.activePixCheckout = {
+        txId: data.txId,
+        mpPaymentId: data.mpPaymentId || '',
+        packageName: data.packageName || packageId,
+        amountBrl: data.amountBrl || 0,
+        qrCode: data.qrCode || '',
+        qrCodeBase64: data.qrCodeBase64 || '',
+        ticketUrl: data.ticketUrl,
+      };
+
+      this.renderShopPopup();
+      this.startPixPoll(data.txId);
+    } catch (err) {
+      this.pixCreatingPackageId = null;
+      this.showToast('error', `Erro ao iniciar pagamento: ${(err as Error).message}`);
+      this.renderShopPopup();
+    }
+  }
+
+  private startPixPoll(txId: string) {
+    this.stopPixPoll();
+    this.pixPollTimer = window.setInterval(async () => {
+      try {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/payments/check/${encodeURIComponent(txId)}`, {
+          method: 'GET',
+          headers: this.getAuthHeaders(),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          ok?: boolean;
+          status?: string;
+          approved?: boolean;
+        };
+        if (data.approved || data.status === 'APPROVED') {
+          this.stopPixPoll();
+          this.activePixCheckout = null;
+          if (this.activeModal === 'SHOP') {
+            this.renderShopPopup();
+          }
+        }
+      } catch {
+        // Ignora falhas temporárias de rede no polling
+      }
+    }, 4000);
+  }
+
+  private stopPixPoll() {
+    if (this.pixPollTimer !== null) {
+      clearInterval(this.pixPollTimer);
+      this.pixPollTimer = null;
+    }
   }
 
   // ------------------------------------------
@@ -1743,6 +2165,11 @@ class PocketCornerApp {
           <div class="item-name">
             ${this.escapeHtml(item.name)}
             <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
+            ${
+              item.realMoneyOnly
+                ? `<span class="rarity-badge rarity-LEGENDARY" title="Item exclusivo do Double D Pack">💿 Double D Pack</span>`
+                : ''
+            }
           </div>
           <div class="item-sub">${this.escapeHtml(item.description)}</div>
         </div>
@@ -1760,9 +2187,13 @@ class PocketCornerApp {
                 : isEquipped
                   ? `<span class="btn btn-sm active-toggle">Em uso</span>`
                   : `<button class="btn btn-sm btn-primary" data-equip-item="${item.id}">Usar</button>`
-              : `<button class="btn btn-sm btn-gold" data-buy-item="${item.id}">
-                  ${item.price} ${currencyIcon}
-                </button>`
+              : item.realMoneyOnly
+                ? `<button class="btn btn-sm btn-gold" data-open-double-d="1" title="Exclusivo do Double D Pack">
+                    💿 Ver Pack (R$)
+                  </button>`
+                : `<button class="btn btn-sm btn-gold" data-buy-item="${item.id}">
+                    ${item.price} ${currencyIcon}
+                  </button>`
           }
         </div>
       </div>
@@ -1955,6 +2386,236 @@ class PocketCornerApp {
 
     document.getElementById('btn-logout-account')?.addEventListener('click', () => {
       this.logoutAccount();
+    });
+  }
+
+  // ------------------------------------------
+  // 5. POPUP DE ADMINISTRADOR (100% VALIDADO NO BACKEND VIA ADMIN_EMAIL)
+  // ------------------------------------------
+  private async fetchAdminDashboard() {
+    this.adminDashboard.loading = true;
+    this.adminDashboard.error = undefined;
+    if (this.activeModal === 'ADMIN') {
+      this.renderAdminPopup();
+    }
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/admin/dashboard`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        adminEmail?: string;
+        summary?: {
+          totalApprovedBrl: number;
+          approvedCount: number;
+          pendingCount: number;
+          totalTransactions: number;
+          totalGemsSold: number;
+          totalShopPurchases: number;
+          totalRegisteredUsers: number;
+        };
+        paymentTransactions?: PaymentTransactionRecord[];
+        shopPurchaseLogs?: ShopPurchaseLogRecord[];
+      };
+
+      this.adminDashboard.loading = false;
+
+      if (!res.ok || !data.ok) {
+        this.adminDashboard.error =
+          data.error || 'Acesso negado pelo servidor (ADMIN_EMAIL não autorizado).';
+      } else {
+        this.adminDashboard.adminEmail = data.adminEmail;
+        this.adminDashboard.summary = data.summary;
+        this.adminDashboard.paymentTransactions = data.paymentTransactions || [];
+        this.adminDashboard.shopPurchaseLogs = data.shopPurchaseLogs || [];
+      }
+    } catch (err) {
+      this.adminDashboard.loading = false;
+      this.adminDashboard.error = `Falha ao consultar servidor: ${(err as Error).message}`;
+    }
+
+    if (this.activeModal === 'ADMIN') {
+      this.renderAdminPopup();
+    }
+  }
+
+  private renderAdminPopup() {
+    const sum = this.adminDashboard.summary;
+    const revenueFormatted = sum ? this.formatBrl(sum.totalApprovedBrl) : 'R$ 0,00';
+
+    const formatDate = (ts?: number) => {
+      if (!ts) return '-';
+      return new Date(ts).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    };
+
+    this.mountPopupWindow(
+      `
+        <div class="popup-header">
+          <div class="popup-title">
+            <span>🛡️</span>
+            <span>Painel do Administrador (Transações & Compras)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn btn-sm btn-primary" id="btn-admin-refresh">🔄 Atualizar Dados</button>
+            <button class="btn btn-icon" id="btn-close-modal">✕</button>
+          </div>
+        </div>
+
+        <div class="popup-tabs">
+          <button class="popup-tab ${this.adminTab === 'TRANSACTIONS' ? 'active' : ''}" data-admin-tab="TRANSACTIONS">
+            💳 Transações PIX / Mercado Pago (${this.adminDashboard.paymentTransactions.length})
+          </button>
+          <button class="popup-tab ${this.adminTab === 'PURCHASES' ? 'active' : ''}" data-admin-tab="PURCHASES">
+            🛍️ Compras na Loja (${this.adminDashboard.shopPurchaseLogs.length})
+          </button>
+        </div>
+
+        <div class="popup-body">
+          ${
+            this.adminDashboard.loading
+              ? `<div style="padding: 32px; text-align: center; color: var(--text-secondary);">
+                  ⏳ Validando credenciais de administrador no servidor e carregando registros...
+                </div>`
+              : this.adminDashboard.error
+                ? `<div style="padding: 24px; text-align: center; color: #f87171; font-weight: 600;">
+                    🔒 ${this.escapeHtml(this.adminDashboard.error)}
+                  </div>`
+                : `
+                  <div class="admin-stats-grid">
+                    <div class="admin-stat-card">
+                      <span class="label">Receita Aprovada (PIX)</span>
+                      <span class="val" style="color: #4ade80;">${revenueFormatted}</span>
+                    </div>
+                    <div class="admin-stat-card">
+                      <span class="label">PIX Aprovados / Pendentes</span>
+                      <span class="val">${sum?.approvedCount || 0} <span style="font-size:0.75rem; color:var(--text-muted);">/ ${sum?.pendingCount || 0}</span></span>
+                    </div>
+                    <div class="admin-stat-card">
+                      <span class="label">Compras Internas (Loja)</span>
+                      <span class="val" style="color: var(--accent-gold);">${sum?.totalShopPurchases || 0}</span>
+                    </div>
+                    <div class="admin-stat-card">
+                      <span class="label">Contas Registradas</span>
+                      <span class="val" style="color: var(--accent-cyan);">${sum?.totalRegisteredUsers || 0}</span>
+                    </div>
+                  </div>
+
+                  ${
+                    this.adminTab === 'TRANSACTIONS'
+                      ? this.adminDashboard.paymentTransactions.length === 0
+                        ? `<div class="empty-hint">Nenhuma transação PIX gerada ainda.</div>`
+                        : `
+                          <div style="overflow-x: auto;">
+                            <table class="admin-table">
+                              <thead>
+                                <tr>
+                                  <th>Data</th>
+                                  <th>Jogador / E-mail</th>
+                                  <th>Pacote</th>
+                                  <th>Valor</th>
+                                  <th>Status</th>
+                                  <th>ID Mercado Pago</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${this.adminDashboard.paymentTransactions
+                                  .map(
+                                    (tx) => `
+                                      <tr>
+                                        <td>${formatDate(tx.approvedAt || tx.createdAt)}</td>
+                                        <td>
+                                          <b>${this.escapeHtml(tx.displayName)}</b>
+                                          <span style="color:var(--accent-cyan);">@${this.escapeHtml(tx.username)}</span><br/>
+                                          <span style="font-size:0.65rem; color:var(--text-muted);">${this.escapeHtml(tx.email || '-')}</span>
+                                        </td>
+                                        <td>${this.escapeHtml(tx.packageName)}</td>
+                                        <td style="font-weight:700; color:var(--accent-gold);">
+                                          ${this.formatBrl(tx.amountBrl)}
+                                        </td>
+                                        <td>
+                                          <span class="tx-status-pill tx-status-${tx.status}">
+                                            ${tx.status}
+                                          </span>
+                                        </td>
+                                        <td style="font-family:monospace; font-size:0.66rem; color:var(--text-muted);">
+                                          ${this.escapeHtml(tx.mpPaymentId || tx.id)}
+                                        </td>
+                                      </tr>
+                                    `
+                                  )
+                                  .join('')}
+                              </tbody>
+                            </table>
+                          </div>
+                        `
+                      : this.adminDashboard.shopPurchaseLogs.length === 0
+                        ? `<div class="empty-hint">Nenhuma compra com Moedas ou Pip Diamantes registrada ainda.</div>`
+                        : `
+                          <div style="overflow-x: auto;">
+                            <table class="admin-table">
+                              <thead>
+                                <tr>
+                                  <th>Data</th>
+                                  <th>Jogador / E-mail</th>
+                                  <th>Item Comprado</th>
+                                  <th>Origem</th>
+                                  <th>Preço Pago</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${this.adminDashboard.shopPurchaseLogs
+                                  .map(
+                                    (log) => `
+                                      <tr>
+                                        <td>${formatDate(log.createdAt)}</td>
+                                        <td>
+                                          <b>${this.escapeHtml(log.displayName)}</b>
+                                          <span style="color:var(--accent-cyan);">@${this.escapeHtml(log.username)}</span><br/>
+                                          <span style="font-size:0.65rem; color:var(--text-muted);">${this.escapeHtml(log.email || '-')}</span>
+                                        </td>
+                                        <td><b>${log.itemIcon} ${this.escapeHtml(log.itemName)}</b></td>
+                                        <td>${log.source === 'GACHAPON' ? '🎰 Cápsula' : '🛍️ Loja'}</td>
+                                        <td style="font-weight:700;">
+                                          ${log.price} ${log.currency === 'GEMS' ? '💎 Pip Diamantes' : '🪙 Moedas'}
+                                        </td>
+                                      </tr>
+                                    `
+                                  )
+                                  .join('')}
+                              </tbody>
+                            </table>
+                          </div>
+                        `
+                  }
+                `
+          }
+        </div>
+      `,
+      '820px'
+    );
+
+    this.bindCommonPopupEvents();
+
+    document.getElementById('btn-admin-refresh')?.addEventListener('click', () => {
+      void this.fetchAdminDashboard();
+    });
+
+    this.modalRootEl.querySelectorAll('[data-admin-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.adminTab = (btn as HTMLElement).dataset.adminTab as AdminTab;
+        this.renderAdminPopup();
+      });
     });
   }
 
