@@ -24,7 +24,18 @@ import { getApiBaseUrl, windowBridge } from './bridge/windowBridge';
 import { PixelCanvasRenderer } from './renderer/PixelCanvas';
 
 type ActiveModal = 'NONE' | 'SHOP' | 'FRIENDS' | 'BACKPACK' | 'PROFILE';
-type ShopTab = 'AVATAR' | 'ROOM' | 'FX' | 'GACHA';
+type ShopTab = 'APARENCIA' | 'CANTINHO' | 'OUTROS';
+type ShopSubTab =
+  | 'PIP'
+  | 'CABECA'
+  | 'COSTAS'
+  | 'MOVEIS'
+  | 'CENARIO'
+  | 'BRINQUEDOS'
+  | 'EFEITOS'
+  | 'CHAT'
+  | 'PRESENTES'
+  | 'GACHA';
 type FriendsTab = 'ONLINE' | 'MY_ROOM' | 'REQUESTS';
 type BackpackTab = 'AVATAR' | 'FURNITURE' | 'FX';
 
@@ -82,7 +93,8 @@ class PocketCornerApp {
   private mongoConnected = false;
 
   private activeModal: ActiveModal = 'NONE';
-  private shopTab: ShopTab = 'AVATAR';
+  private shopTab: ShopTab = 'APARENCIA';
+  private shopSubTab: ShopSubTab = 'PIP';
   private friendsTab: FriendsTab = 'ONLINE';
   private backpackTab: BackpackTab = 'AVATAR';
 
@@ -521,6 +533,20 @@ class PocketCornerApp {
     this.socket = baseUrl ? io(baseUrl, socketOpts) : io(socketOpts);
 
     this.socket.on('auth:profile', (profile) => {
+      const prev = this.profile;
+      const structuralChange =
+        !prev ||
+        prev.displayName !== profile.displayName ||
+        prev.username !== profile.username ||
+        prev.hostStatus !== profile.hostStatus ||
+        prev.doorPermission !== profile.doorPermission ||
+        prev.inventory.length !== profile.inventory.length ||
+        JSON.stringify(prev.equipped) !== JSON.stringify(profile.equipped) ||
+        JSON.stringify(prev.placedFurniture) !== JSON.stringify(profile.placedFurniture) ||
+        JSON.stringify(prev.friends) !== JSON.stringify(profile.friends) ||
+        JSON.stringify(prev.pendingIncomingFriends) !==
+          JSON.stringify(profile.pendingIncomingFriends);
+
       this.profile = profile;
       if (this.authSession) {
         this.saveAuthSession({
@@ -536,7 +562,14 @@ class PocketCornerApp {
       this.renderer.setIdentity(profile.id);
       this.renderTopbar();
       this.renderFloatingDock();
-      if (this.activeModal !== 'NONE') {
+
+      // Atualiza saldo na Loja sem piscar/recriar o popup quando for apenas tick passivo de moedas
+      const shopCoinsEl = document.getElementById('shop-coins-pill');
+      const shopGemsEl = document.getElementById('shop-gems-pill');
+      if (shopCoinsEl) shopCoinsEl.textContent = `🪙 ${profile.coins}`;
+      if (shopGemsEl) shopGemsEl.textContent = `💎 ${profile.gems}`;
+
+      if (this.activeModal !== 'NONE' && structuralChange) {
         this.renderActiveModal();
       }
 
@@ -552,12 +585,23 @@ class PocketCornerApp {
     });
 
     this.socket.on('room:state', (snapshot) => {
+      const prevFurnJson = JSON.stringify(this.room?.placedFurniture || []);
+      const nextFurnJson = JSON.stringify(snapshot.placedFurniture || []);
+      const prevPlayersLen = this.room?.players.length ?? -1;
+      const nextPlayersLen = snapshot.players.length;
+
       this.room = snapshot;
       this.renderer.updateRoom(snapshot);
       this.renderTopbar();
       this.renderKnockBanner();
       this.renderFloatingDock();
-      if (this.activeModal !== 'NONE') {
+
+      if (this.activeModal === 'FRIENDS' && prevPlayersLen !== nextPlayersLen) {
+        this.renderActiveModal();
+      } else if (
+        (this.activeModal === 'SHOP' || this.activeModal === 'BACKPACK') &&
+        prevFurnJson !== nextFurnJson
+      ) {
         this.renderActiveModal();
       }
     });
@@ -893,84 +937,232 @@ class PocketCornerApp {
     }
   }
 
+  /**
+   * Atualiza o conteúdo interno do popup sem recriar o .modal-backdrop,
+   * eliminando 100% do efeito de "piscar/refresh" e preservando a rolagem.
+   */
+  private mountPopupWindow(innerHtml: string, maxWidth = '720px') {
+    const prevBody = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
+    const prevScroll = prevBody ? prevBody.scrollTop : 0;
+
+    let backdropEl = document.getElementById('modal-backdrop');
+    let windowEl = this.modalRootEl.querySelector('.popup-window') as HTMLElement | null;
+
+    if (!backdropEl || !windowEl) {
+      this.modalRootEl.innerHTML = `
+        <div class="modal-backdrop" id="modal-backdrop">
+          <div class="popup-window" style="max-width: ${maxWidth};">
+            ${innerHtml}
+          </div>
+        </div>
+      `;
+    } else {
+      windowEl.style.maxWidth = maxWidth;
+      windowEl.innerHTML = innerHtml;
+    }
+
+    const nextBody = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
+    if (nextBody && prevScroll > 0) {
+      nextBody.scrollTop = prevScroll;
+    }
+  }
+
   // ------------------------------------------
-  // 1. POPUP "🛍️ LOJA" (Com Abas em vez de filtros)
+  // 1. POPUP "🛍️ LOJA" (Separada por Aparência, Meu Cantinho e Outros + Sub-abas)
   // ------------------------------------------
   private renderShopPopup() {
     if (!this.profile) return;
 
-    const categoryGroups: Record<ShopTab, CosmeticCategory[]> = {
-      AVATAR: ['avatar_body', 'avatar_head', 'avatar_back'],
-      ROOM: ['furniture', 'room_skin'],
-      FX: ['spawn_fx', 'chat_skin', 'throwable', 'desk_drop'],
-      GACHA: [],
+    const subTabsByMain: Record<
+      ShopTab,
+      Array<{
+        id: ShopSubTab;
+        label: string;
+        icon: string;
+        category?: CosmeticCategory;
+        description: string;
+      }>
+    > = {
+      APARENCIA: [
+        {
+          id: 'PIP',
+          icon: '🐾',
+          label: 'Pip',
+          category: 'avatar_body',
+          description: 'Mude o seu personagem (raposa, pinguim, peixe, capivara, gato e mais)',
+        },
+        {
+          id: 'CABECA',
+          icon: '🎧',
+          label: 'Cabeça',
+          category: 'avatar_head',
+          description: 'Chapéus, capacetes, fones lo-fi e coroas para o seu Pip',
+        },
+        {
+          id: 'COSTAS',
+          icon: '🎒',
+          label: 'Costas',
+          category: 'avatar_back',
+          description: 'Asas, mochilas, capas e jetpacks equipados nas costas',
+        },
+      ],
+      CANTINHO: [
+        {
+          id: 'MOVEIS',
+          icon: '🛋️',
+          label: 'Móveis',
+          category: 'furniture',
+          description: 'Sofás, tapetes, quadros, luminárias, estantes, aquários e setups (1 unidade de cada)',
+        },
+        {
+          id: 'CENARIO',
+          icon: '🖼️',
+          label: 'Cenário',
+          category: 'room_skin',
+          description: 'Temas completos de ambiente: Floresta Densa, Escritório, Fundo do Mar e mais',
+        },
+      ],
+      OUTROS: [
+        {
+          id: 'BRINQUEDOS',
+          icon: '✈️',
+          label: 'Brinquedos',
+          category: 'throwable',
+          description: 'Itens divertidos para arremessar nos amigos dentro da sala',
+        },
+        {
+          id: 'EFEITOS',
+          icon: '⚡',
+          label: 'Efeitos',
+          category: 'spawn_fx',
+          description: 'Animações especiais quando você entra no cantinho de alguém',
+        },
+        {
+          id: 'CHAT',
+          icon: '💬',
+          label: 'Balões de Chat',
+          category: 'chat_skin',
+          description: 'Estilos visuais para as mensagens que aparecem em cima do seu Pip',
+        },
+        {
+          id: 'PRESENTES',
+          icon: '☕',
+          label: 'Presentes',
+          category: 'desk_drop',
+          description: 'Cafés, bolos e mimos que você pode deixar no chão para seus amigos',
+        },
+        {
+          id: 'GACHA',
+          icon: '🎰',
+          label: 'Cápsula Surpresa',
+          description: 'Sorteie qualquer item do catálogo com desconto usando suas Moedas Idle',
+        },
+      ],
     };
 
-    const items =
-      this.shopTab === 'GACHA'
-        ? []
-        : COSMETIC_CATALOG.filter((it) =>
-            categoryGroups[this.shopTab].includes(it.category)
-          );
+    const currentSubTabs = subTabsByMain[this.shopTab];
+    if (!currentSubTabs.some((st) => st.id === this.shopSubTab)) {
+      this.shopSubTab = currentSubTabs[0].id;
+    }
 
-    this.modalRootEl.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop">
-        <div class="popup-window">
-          <div class="popup-header">
-            <div class="popup-title">
-              <span>🛍️</span>
-              <span>Loja</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="currency-pill coins">🪙 ${this.profile.coins}</span>
-              <span class="currency-pill gems">💎 ${this.profile.gems}</span>
-              <button class="btn btn-sm btn-gold" id="btn-shop-free-coins">+Moedas Grátis</button>
-              <button class="btn btn-icon" id="btn-close-modal">✕</button>
-            </div>
-          </div>
+    const activeSubMeta =
+      currentSubTabs.find((st) => st.id === this.shopSubTab) || currentSubTabs[0];
 
-          <div class="popup-tabs">
-            <button class="popup-tab ${this.shopTab === 'AVATAR' ? 'active' : ''}" data-shop-tab="AVATAR">
-              🧑 Roupas & Visual
-            </button>
-            <button class="popup-tab ${this.shopTab === 'ROOM' ? 'active' : ''}" data-shop-tab="ROOM">
-              🛋️ Móveis & Cenários
-            </button>
-            <button class="popup-tab ${this.shopTab === 'FX' ? 'active' : ''}" data-shop-tab="FX">
-              ✨ Efeitos & Brinquedos
-            </button>
-            <button class="popup-tab ${this.shopTab === 'GACHA' ? 'active' : ''}" data-shop-tab="GACHA">
-              🎰 Gachapon
-            </button>
-          </div>
+    const items = activeSubMeta.category
+      ? COSMETIC_CATALOG.filter((it) => it.category === activeSubMeta.category)
+      : [];
 
-          <div class="popup-body">
-            ${
-              this.shopTab === 'GACHA'
-                ? `
-                  <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
-                    <div style="font-size: 3rem;">🎰</div>
-                    <div style="font-size: 1rem; font-weight: 700; color: var(--accent-gold);">
-                      Máquina de Cápsulas Surpresa
-                    </div>
-                    <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 420px;">
-                      Sorteie qualquer cosmético do catálogo usando suas Moedas Idle! Itens repetidos devolvem metade do valor.
-                    </div>
-                    <button class="btn btn-primary" id="btn-roll-gachapon" style="padding: 10px 24px; font-size: 0.88rem;">
-                      Girar Cápsula (${GACHAPON_COST_COINS} 🪙)
-                    </button>
-                  </div>
-                `
-                : `
-                  <div class="items-grid">
-                    ${items.map((item) => this.renderCatalogItemCard(item)).join('')}
-                  </div>
-                `
-            }
-          </div>
+    this.mountPopupWindow(`
+      <div class="popup-header">
+        <div class="popup-title">
+          <span>🛍️</span>
+          <span>Loja</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="currency-pill coins" id="shop-coins-pill">🪙 ${this.profile.coins}</span>
+          <span class="currency-pill gems" id="shop-gems-pill">💎 ${this.profile.gems}</span>
+          <button class="btn btn-sm btn-gold" id="btn-shop-free-coins">+Moedas Grátis</button>
+          <button class="btn btn-icon" id="btn-close-modal">✕</button>
         </div>
       </div>
-    `;
+
+      <!-- Abas Principais: Aparência | Meu Cantinho | Outros -->
+      <div class="popup-tabs">
+        <button class="popup-tab ${this.shopTab === 'APARENCIA' ? 'active' : ''}" data-shop-tab="APARENCIA">
+          ✨ Aparência
+        </button>
+        <button class="popup-tab ${this.shopTab === 'CANTINHO' ? 'active' : ''}" data-shop-tab="CANTINHO">
+          🏠 Meu Cantinho
+        </button>
+        <button class="popup-tab ${this.shopTab === 'OUTROS' ? 'active' : ''}" data-shop-tab="OUTROS">
+          🎁 Outros
+        </button>
+      </div>
+
+      <!-- Sub-abas da Categoria Selecionada -->
+      <div class="popup-subtabs">
+        ${currentSubTabs
+          .map((sub) => {
+            const count = sub.category
+              ? COSMETIC_CATALOG.filter((it) => it.category === sub.category).length
+              : 0;
+            return `
+              <button
+                class="popup-subtab ${this.shopSubTab === sub.id ? 'active' : ''}"
+                data-shop-subtab="${sub.id}"
+              >
+                <span>${sub.icon}</span>
+                <span>${sub.label}</span>
+                ${count > 0 ? `<span class="popup-subtab-count">${count}</span>` : ''}
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+
+      <div class="popup-body">
+        <div class="shop-section-banner">
+          <div>
+            <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary);">
+              ${activeSubMeta.icon} ${activeSubMeta.label}
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+              ${activeSubMeta.description}
+            </div>
+          </div>
+          ${
+            activeSubMeta.category
+              ? `<span style="font-size: 0.7rem; color: var(--text-muted); white-space: nowrap;">
+                  ${items.filter((i) => this.profile!.inventory.includes(i.id)).length}/${items.length} adquiridos
+                </span>`
+              : ''
+          }
+        </div>
+
+        ${
+          this.shopSubTab === 'GACHA'
+            ? `
+              <div style="text-align: center; padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+                <div style="font-size: 3rem;">🎰</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--accent-gold);">
+                  Máquina de Cápsulas Surpresa
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 420px;">
+                  Sorteie qualquer cosmético do catálogo usando suas Moedas Idle! Itens repetidos devolvem metade do valor.
+                </div>
+                <button class="btn btn-primary" id="btn-roll-gachapon" style="padding: 10px 24px; font-size: 0.88rem;">
+                  Girar Cápsula (${GACHAPON_COST_COINS} 🪙)
+                </button>
+              </div>
+            `
+            : `
+              <div class="items-grid">
+                ${items.map((item) => this.renderCatalogItemCard(item)).join('')}
+              </div>
+            `
+        }
+      </div>
+    `);
 
     this.bindCommonPopupEvents();
 
@@ -984,8 +1176,26 @@ class PocketCornerApp {
 
     this.modalRootEl.querySelectorAll('[data-shop-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.shopTab = (btn as HTMLElement).dataset.shopTab as ShopTab;
-        this.renderShopPopup();
+        const nextTab = (btn as HTMLElement).dataset.shopTab as ShopTab;
+        if (this.shopTab !== nextTab) {
+          this.shopTab = nextTab;
+          this.shopSubTab = subTabsByMain[nextTab][0].id;
+          const bodyEl = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
+          if (bodyEl) bodyEl.scrollTop = 0;
+          this.renderShopPopup();
+        }
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-shop-subtab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nextSub = (btn as HTMLElement).dataset.shopSubtab as ShopSubTab;
+        if (this.shopSubTab !== nextSub) {
+          this.shopSubTab = nextSub;
+          const bodyEl = this.modalRootEl.querySelector('.popup-body') as HTMLElement | null;
+          if (bodyEl) bodyEl.scrollTop = 0;
+          this.renderShopPopup();
+        }
       });
     });
 
@@ -1005,9 +1215,7 @@ class PocketCornerApp {
     const visitors =
       this.room?.players.filter((p) => p.userId !== this.profile?.id) || [];
 
-    this.modalRootEl.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop">
-        <div class="popup-window">
+    this.mountPopupWindow(`
           <div class="popup-header">
             <div class="popup-title">
               <span>👥</span>
@@ -1213,9 +1421,7 @@ class PocketCornerApp {
                     `
               }
             </div>
-          </div>
-        </div>
-      `;
+      `);
 
       this.bindCommonPopupEvents();
 
@@ -1361,9 +1567,7 @@ class PocketCornerApp {
 
     const placedList = this.room?.placedFurniture || this.profile.placedFurniture || [];
 
-    this.modalRootEl.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop">
-        <div class="popup-window">
+    this.mountPopupWindow(`
           <div class="popup-header">
             <div class="popup-title">
               <span>🎒</span>
@@ -1462,9 +1666,7 @@ class PocketCornerApp {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    `;
+    `);
 
     this.bindCommonPopupEvents();
 
@@ -1526,12 +1728,22 @@ class PocketCornerApp {
       ? (this.profile!.placedFurniture || []).find((f) => f.itemId === item.id)
       : undefined;
     const currencyIcon = item.currency === 'COINS' ? '🪙' : '💎';
+    const rarityLabels: Record<string, string> = {
+      COMMON: 'Comum',
+      RARE: 'Raro',
+      EPIC: 'Épico',
+      LEGENDARY: 'Lendário',
+    };
+    const rarityLabel = rarityLabels[item.rarity] || item.rarity;
 
     return `
       <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}">
         <div class="item-icon">${item.icon}</div>
         <div class="item-info">
-          <div class="item-name">${this.escapeHtml(item.name)}</div>
+          <div class="item-name">
+            ${this.escapeHtml(item.name)}
+            <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
+          </div>
           <div class="item-sub">${this.escapeHtml(item.description)}</div>
         </div>
         <div>
@@ -1599,9 +1811,8 @@ class PocketCornerApp {
     const googleEmail = this.profile?.email || this.authSession?.email || '';
     const googlePic = this.profile?.picture || this.authSession?.picture || '';
 
-    this.modalRootEl.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop">
-        <div class="popup-window" style="max-width: 430px;">
+    this.mountPopupWindow(
+      `
           <div class="popup-header">
             <div class="popup-title">👤 Minha Conta & Nickname</div>
             <button class="btn btn-icon" id="btn-close-modal">✕</button>
@@ -1700,9 +1911,9 @@ class PocketCornerApp {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    `;
+      `,
+      '430px'
+    );
 
     this.bindCommonPopupEvents();
 
