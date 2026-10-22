@@ -91,13 +91,13 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
     }
   }
 
-  const prevHostId = store.userCurrentRoom.get(userId);
+  const prevHostId = store.userCurrentRoom.get(userId) || userId;
+  store.userCurrentRoom.set(userId, targetHostId);
+
   if (prevHostId && prevHostId !== targetHostId) {
     const prevRoom = store.rooms.get(prevHostId);
     if (prevRoom) {
-      if (prevHostId !== userId) {
-        prevRoom.players.delete(userId);
-      }
+      prevRoom.players.delete(userId);
       broadcastRoomState(prevHostId);
     }
   }
@@ -141,7 +141,6 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
   };
 
   targetRoom.players.set(userId, playerState);
-  store.userCurrentRoom.set(userId, targetHostId);
 
   // 5.2. Broadcast de chegada de visitante (room:user_joined) com cosméticos reais do servidor
   if (userId !== targetHostId) {
@@ -924,11 +923,16 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       return;
     }
 
-    if (targetHost.doorPermission === 'OPEN' || targetHost.id === BOT_USER_ID) {
-      moveUserToRoom(userId, targetHost.id, true);
+    const currentTargetHostRoom = store.userCurrentRoom.get(targetHost.id) || targetHost.id;
+    const isTargetHostAway = currentTargetHostRoom !== targetHost.id;
+
+    if (targetHost.doorPermission === 'OPEN' || targetHost.id === BOT_USER_ID || isTargetHostAway) {
+      moveUserToRoom(userId, targetHost.id, !isTargetHostAway);
       socket.emit('system:toast', {
-        type: 'success',
-        message: `🚀 Você invadiu o cantinho de ${targetHost.displayName}!`,
+        type: isTargetHostAway ? 'info' : 'success',
+        message: isTargetHostAway
+          ? `🪧 ${targetHost.displayName} saiu para visitar outra pessoa: "Volto já!"`
+          : `🚀 Você invadiu o cantinho de ${targetHost.displayName}!`,
       });
     } else {
       const knockId = `knock_${userId}_${targetHost.id}`;
@@ -1817,6 +1821,8 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
           broadcastRoomState(currentHostId);
         }
         store.userCurrentRoom.set(userId, userId);
+        store.ensureRoom(userId);
+        broadcastRoomState(userId);
         broadcastDirectory();
       }
     }

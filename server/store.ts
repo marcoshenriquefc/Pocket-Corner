@@ -1463,7 +1463,10 @@ export class PocketStore {
       this.rooms.set(hostUserId, room);
     }
 
-    if (hostUser && !room.players.has(hostUserId)) {
+    const currentHostRoom = this.userCurrentRoom.get(hostUserId);
+    const isAwayVisiting = Boolean(currentHostRoom && currentHostRoom !== hostUserId);
+
+    if (hostUser && !isAwayVisiting && !room.players.has(hostUserId)) {
       const activities: IdleActivity[] = ['COFFEE', 'TYPING', 'SLEEPING', 'FISHING'];
       room.players.set(hostUserId, {
         userId: hostUser.id,
@@ -1480,6 +1483,8 @@ export class PocketStore {
         isBot: hostUser.id === BOT_USER_ID,
       });
       this.userCurrentRoom.set(hostUserId, hostUserId);
+    } else if (isAwayVisiting && room.players.has(hostUserId)) {
+      room.players.delete(hostUserId);
     }
 
     return room;
@@ -1533,6 +1538,10 @@ export class PocketStore {
     const room = this.ensureRoom(hostUserId);
     const hostUser = this.db.users[hostUserId];
     const verifiedHostEquip = this.getVerifiedEquipped(hostUserId);
+    const currentHostRoom = this.userCurrentRoom.get(hostUserId);
+    const hostAwayVisiting = Boolean(currentHostRoom && currentHostRoom !== hostUserId);
+    const visitingTarget =
+      hostAwayVisiting && currentHostRoom ? this.db.users[currentHostRoom] : undefined;
 
     const now = Date.now();
     for (const p of room.players.values()) {
@@ -1575,10 +1584,12 @@ export class PocketStore {
       hostDisplayName: hostUser?.displayName || 'Host',
       hostStatus: hostUser?.hostStatus || 'IDLE',
       hostWorkStatus: hostUser?.workStatus || '',
+      hostAwayVisiting,
+      hostVisitingDisplayName: visitingTarget?.displayName,
       doorPermission: hostUser?.doorPermission || 'OPEN',
       roomSkinId: verifiedHostEquip.room_skin,
       placedFurniture: hostUser?.placedFurniture || [],
-      players: Array.from(room.players.values()),
+      players: hostAwayVisiting ? [] : Array.from(room.players.values()),
       deskDrops: this.getDeskDrops(hostUserId),
       pendingKnocks: Array.from(room.pendingKnocks.values()),
       maxVisitors: 4,

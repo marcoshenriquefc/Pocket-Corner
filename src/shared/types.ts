@@ -204,6 +204,8 @@ export interface RoomSnapshot {
   hostDisplayName: string;
   hostStatus: HostStatus;
   hostWorkStatus?: string;
+  hostAwayVisiting?: boolean; // True quando o dono da sala saiu para visitar outra pessoa ("Volto já")
+  hostVisitingDisplayName?: string; // Nome de quem o dono da sala foi visitar
   doorPermission: DoorPermission;
   roomSkinId: string; // Verified from host's equipped.room_skin
   placedFurniture: PlacedFurnitureItem[]; // Móveis posicionados pelo Host

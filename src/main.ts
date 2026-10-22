@@ -1662,8 +1662,9 @@ class PocketCornerApp {
     if (!this.profile) return;
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
     const isVideoPiP = windowBridge.videoPipActive;
-    const playersCount = this.room?.players.length || 1;
-    const isCoWorking = playersCount >= 2;
+    const isHostAway = Boolean(!isMyRoom && this.room?.hostAwayVisiting);
+    const playersCount = this.room?.players.length || 0;
+    const isCoWorking = !isHostAway && playersCount >= 2;
 
     this.topbarEl.innerHTML = `
       <div class="topbar-left">
@@ -1676,8 +1677,10 @@ class PocketCornerApp {
         <span class="room-pill">
           ${
             isMyRoom
-              ? `🏠 Meu Cantinho (${playersCount}/5)`
-              : `🚀 Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
+              ? `🏠 Meu Cantinho (${playersCount || 1}/5)`
+              : isHostAway
+                ? `🚀 Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')} (🪧 Volto já)`
+                : `🚀 Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
           }
         </span>
 
@@ -1973,17 +1976,26 @@ class PocketCornerApp {
           const isInMyRoom =
             entry.currentRoomHostId === this.profile!.id ||
             (isMyRoom && this.room?.players.some((p) => p.userId === entry.userId));
+          const isAwayVisitingOther = Boolean(
+            entry.currentRoomHostId &&
+              entry.currentRoomHostId !== entry.userId &&
+              !isInMyRoom
+          );
           const isFriend = entry.isBot || this.profile!.friends.includes(entry.userId);
           const statusTitle = entry.workStatus ? ` • 🪧 "${entry.workStatus}"` : '';
           const actionHint = isVisitingThem
-            ? 'Você está visitando esta sala'
+            ? isAwayVisitingOther
+              ? 'Você está na sala (Amigo saiu para visitar outra pessoa: "Volto já")'
+              : 'Você está visitando esta sala'
             : entry.hostStatus === 'DND'
               ? 'Modo DND — Clique para deixar um café com Post-it!'
               : !isFriend
                 ? 'Clique para enviar pedido de amizade'
-                : entry.doorPermission === 'KNOCK'
-                  ? 'Clique para bater na porta (🔔 Toc-Toc)'
-                  : 'Clique para visitar com 1 clique (🤝 Co-Working +2 🪙)';
+                : isAwayVisitingOther
+                  ? 'Saiu para visitar outro cantinho ("Volto já")'
+                  : entry.doorPermission === 'KNOCK'
+                    ? 'Clique para bater na porta (🔔 Toc-Toc)'
+                    : 'Clique para visitar com 1 clique (🤝 Co-Working +2 🪙)';
 
           return `
             <button
@@ -1995,15 +2007,17 @@ class PocketCornerApp {
               <span class="quick-friend-avatar">${bodyItem?.icon || '🧑'}</span>
               <span>${this.escapeHtml(entry.displayName)}</span>
               ${
-                entry.workStatus
-                  ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
-                  : isVisitingThem
-                    ? `<span class="quick-friend-tag">📍 Na sala</span>`
-                    : isInMyRoom
-                      ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
-                      : entry.hostStatus === 'DND'
-                        ? `<span class="quick-friend-tag">📫</span>`
-                        : ''
+                isAwayVisitingOther
+                  ? `<span class="quick-friend-tag" style="color: #fde047;">🪧 Volto já</span>`
+                  : entry.workStatus
+                    ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
+                    : isVisitingThem
+                      ? `<span class="quick-friend-tag">📍 Na sala</span>`
+                      : isInMyRoom
+                        ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
+                        : entry.hostStatus === 'DND'
+                          ? `<span class="quick-friend-tag">📫</span>`
+                          : ''
               }
             </button>
           `;

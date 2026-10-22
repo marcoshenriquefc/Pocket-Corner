@@ -1002,14 +1002,35 @@ export class PixelCanvasRenderer {
       this.drawKnockPeeker(ctx, this.room.pendingKnocks[0], W, floorY);
     }
 
-    // Draw Players (Host + up to 4 Visitors)
-    for (const p of this.room.players) {
-      this.drawPlayer(ctx, p, floorY);
-    }
+    if (this.room.hostAwayVisiting) {
+      // Se o amigo saiu para visitar outra pessoa, a sala dele fica vazia e exibe a placa "Volto já"
+      this.drawHostAwayNotice(ctx, W, floorY);
+    } else {
+      // Draw Players (Host + up to 4 Visitors)
+      for (const p of this.room.players) {
+        this.drawPlayer(ctx, p, floorY);
+      }
 
-    // Draw Active Projectiles (Throwables)
-    for (const proj of this.projectiles) {
-      this.drawProjectile(ctx, proj, floorY);
+      // Draw Active Projectiles (Throwables)
+      for (const proj of this.projectiles) {
+        this.drawProjectile(ctx, proj, floorY);
+      }
+
+      // Draw Floating Chat Bubbles above avatars (max 80 chars, 6s duration)
+      const now = Date.now();
+      for (const p of this.room.players) {
+        const phys = this.physics.get(p.userId);
+        const px = phys ? phys.renderX : p.x;
+        const py = floorY + (phys ? phys.renderY : 0) - 52;
+        if (p.chatBubble && p.chatBubble.expiresAt > now) {
+          this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
+        } else {
+          const thought = this.ambientThoughts.get(p.userId);
+          if (thought && thought.expiresAt > now) {
+            this.drawAmbientThoughtBubble(ctx, px, py + 4, thought.text, thought.expiresAt - now);
+          }
+        }
+      }
     }
 
     // Draw Particles
@@ -1021,26 +1042,10 @@ export class PixelCanvasRenderer {
       ctx.restore();
     }
 
-    // Draw Floating Chat Bubbles above avatars (max 80 chars, 6s duration)
-    const now = Date.now();
-    for (const p of this.room.players) {
-      const phys = this.physics.get(p.userId);
-      const px = phys ? phys.renderX : p.x;
-      const py = floorY + (phys ? phys.renderY : 0) - 52;
-      if (p.chatBubble && p.chatBubble.expiresAt > now) {
-        this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
-      } else {
-        const thought = this.ambientThoughts.get(p.userId);
-        if (thought && thought.expiresAt > now) {
-          this.drawAmbientThoughtBubble(ctx, px, py + 4, thought.text, thought.expiresAt - now);
-        }
-      }
-    }
-
     ctx.restore();
 
     // Screen-Space HUD (visível inclusive dentro do PiP Flutuante via captureStream)
-    if ((this.room.players.length || 0) >= 2) {
+    if (!this.room.hostAwayVisiting && (this.room.players.length || 0) >= 2) {
       this.drawCoWorkingHud(ctx);
     }
     if (this.focusOverlay && this.focusOverlay.active) {
@@ -1049,6 +1054,72 @@ export class PixelCanvasRenderer {
     if (this.nudgeBanner && this.nudgeBanner.expiresAt > nowMs) {
       this.drawMsnNudgeHud(ctx, W, this.nudgeBanner.text);
     }
+  }
+
+  /**
+   * Exibe a placa e mensagem "Volto já" quando você visita a sala de um amigo
+   * que saiu para visitar outra pessoa (deixando a sala vazia).
+   */
+  private drawHostAwayNotice(ctx: CanvasRenderingContext2D, W: number, floorY: number) {
+    if (!this.room) return;
+    const cx = Math.round(W / 2);
+    const bob = Math.round(Math.sin(Date.now() * 0.004) * 1.5);
+
+    ctx.save();
+
+    // 1. Pequeno cavalete de madeira no centro do chão da sala vazia
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(cx - 14, floorY - 3, 28, 3);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(cx - 9, floorY - 16, 3, 14);
+    ctx.fillRect(cx + 6, floorY - 16, 3, 14);
+
+    // 2. Placa principal centralizada na sala ("Volto já")
+    const title = '🪧 Volto já!';
+    const hostName = (this.room.hostDisplayName || 'Amigo').slice(0, 18);
+    const targetName = (this.room.hostVisitingDisplayName || '').slice(0, 16);
+    const subtitle = targetName
+      ? `${hostName} foi visitar ${targetName}`
+      : `${hostName} foi visitar outro cantinho`;
+
+    ctx.font = 'bold 8px monospace';
+    const subW = ctx.measureText(subtitle).width;
+    const boxW = Math.max(136, Math.round(subW + 22));
+    const boxH = 38;
+    const boxX = Math.round(cx - boxW / 2);
+    const boxY = floorY - 54 + bob;
+
+    // Sombra da placa
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+    ctx.fillRect(boxX + 2, boxY + 2, boxW, boxH);
+
+    // Moldura de madeira dourada
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(boxX - 1, boxY - 1, boxW + 2, 1);
+
+    // Fundo escuro aconchegante da placa
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+
+    // Pinos nos cantos da placa
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(boxX + 3, boxY + 3, 2, 2);
+    ctx.fillRect(boxX + boxW - 5, boxY + 3, 2, 2);
+
+    // Texto principal "🪧 Volto já!"
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, cx, boxY + 16);
+
+    // Subtítulo explicando que o amigo saiu para visitar outra pessoa
+    ctx.font = 'bold 7.5px monospace';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(subtitle, cx, boxY + 30);
+
+    ctx.restore();
   }
 
   /**
