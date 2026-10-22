@@ -267,9 +267,38 @@ export class PocketStore {
   }
 
   /**
+   * Gera um ID único imutável baseado no nome inicial (ex: Rick, Rick2, Rick3...).
+   * Uma vez criado, esse valor nunca pode ser alterado.
+   */
+  private generateImmutableUniqueHandle(rawName: string): string {
+    const firstWord = (rawName || 'Player').trim().split(/\s+/)[0] || 'Player';
+    const normalized = firstWord
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 16);
+
+    const baseClean = normalized
+      ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+      : 'Player';
+
+    let candidate = baseClean;
+    let counter = 1;
+    while (
+      Object.values(this.db.users).some(
+        (u) => u.username.toLowerCase() === candidate.toLowerCase()
+      )
+    ) {
+      counter++;
+      candidate = `${baseClean}${counter}`;
+    }
+    return candidate;
+  }
+
+  /**
    * Busca ou cria conta única vinculada ao Google (1 conta por Google ID).
-   * Na criação inicial, define o nome da conta Google como displayName,
-   * mas preserva o nickname personalizado pelo jogador nos logins futuros.
+   * Na criação inicial, gera o @ID único imutável (ex: Rick, Rick2, Rick3)
+   * e define o nome da conta Google como displayName inicial.
    */
   public getOrCreateGoogleUser(params: {
     googleId: string;
@@ -279,7 +308,7 @@ export class PocketStore {
   }): UserProfile {
     const cleanGoogleId = params.googleId.trim();
     const cleanEmail = params.email?.trim().toLowerCase();
-    const cleanGoogleName = (params.googleName || 'Jogador Google').trim().slice(0, 40);
+    const cleanGoogleName = (params.googleName || 'Jogador').trim().slice(0, 40);
 
     const existing = Object.values(this.db.users).find(
       (u) =>
@@ -294,26 +323,25 @@ export class PocketStore {
       existing.googleName = cleanGoogleName;
       if (params.picture) existing.picture = params.picture;
 
+      // Se a conta antiga foi gerada com o prefixo de e-mail antes desta regra, converte uma única vez para o formato Nome/Nome2 e mantém fixo para sempre
+      if (cleanEmail) {
+        const oldEmailPrefix = cleanEmail
+          .split('@')[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, '')
+          .slice(0, 16);
+        if (existing.username === oldEmailPrefix) {
+          existing.username = this.generateImmutableUniqueHandle(cleanGoogleName);
+        }
+      }
+      // IMPORTANTE: existing.username (@ID único) é imutável e NUNCA pode ser alterado pelo usuário!
+
       this.saveDB();
       this.loadSessionCosmetics(existing.id);
       return existing;
     }
 
-    // Gera @username único baseado no email ou nome do Google
-    const baseRaw = cleanEmail
-      ? cleanEmail.split('@')[0]
-      : cleanGoogleName.toLowerCase().replace(/\s+/g, '_');
-    const baseClean = baseRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 16) || 'player';
-    let candidateUsername = baseClean;
-    let counter = 1;
-    while (
-      Object.values(this.db.users).some(
-        (u) => u.username.toLowerCase() === candidateUsername.toLowerCase()
-      )
-    ) {
-      counter++;
-      candidateUsername = `${baseClean.slice(0, 13)}_${counter}`;
-    }
+    const candidateUsername = this.generateImmutableUniqueHandle(cleanGoogleName);
 
     const id = `usr_g_${cleanGoogleId.slice(-10)}_${Math.random().toString(36).slice(2, 6)}`;
     const newUser: UserProfile = {

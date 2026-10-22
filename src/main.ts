@@ -697,6 +697,7 @@ class PocketCornerApp {
         <button class="profile-chip" id="btn-open-profile" title="Alterar Nickname da Sala ou Ver Conta">
           <span class="status-dot ${this.profile.hostStatus}"></span>
           <span>${this.escapeHtml(this.profile.displayName)}</span>
+          <span style="opacity: 0.6; font-size: 0.68rem; font-weight: 500;">@${this.escapeHtml(this.profile.username)}</span>
         </button>
 
         <span class="room-pill">
@@ -1075,172 +1076,202 @@ class PocketCornerApp {
                               ${
                                 isVisitingThem
                                   ? `<span style="font-size: 0.7rem; color: var(--accent-cyan);">Na sala</span>`
-                                  : !isFriend
-                                    ? isPendingIn
-                                      ? `<button class="btn btn-sm btn-gold" data-accept-friend="${entry.userId}">Aceitar</button>`
-                                      : isPendingOut
-                                        ? `<span style="font-size: 0.7rem; color: var(--text-muted);">Pendente</span>`
-                                        : `<button class="btn btn-sm" data-request-friend="${entry.username}">+Amigo</button>`
-                                    : entry.hostStatus === 'DND'
-                                      ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${entry.userId}">📫 Presente</button>`
-                                      : `<button class="btn btn-sm btn-primary" data-visit-user="${entry.userId}">
-                                          ${entry.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
-                                        </button>`
-                              }
+                                    : !isFriend
+                                      ? isPendingIn
+                                        ? `<button class="btn btn-sm btn-gold" data-accept-friend="${entry.userId}">Aceitar</button>`
+                                        : isPendingOut
+                                          ? `<span style="font-size: 0.7rem; color: var(--text-muted);">Pendente</span>`
+                                          : `<button class="btn btn-sm" data-request-friend="@${this.escapeHtml(entry.username)}">+Amigo</button>`
+                                      : entry.hostStatus === 'DND'
+                                        ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${entry.userId}">📫 Presente</button>`
+                                        : `<button class="btn btn-sm btn-primary" data-visit-user="${entry.userId}">
+                                            ${entry.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                                          </button>`
+                                }
+                              </div>
                             </div>
+                          `;
+                        })
+                        .join('')}
+                    </div>
+                  `
+                  : this.friendsTab === 'MY_ROOM'
+                    ? `
+                      <div style="display: flex; flex-direction: column; gap: 14px;">
+                        <!-- Status e Porta -->
+                        <div class="item-card" style="flex-wrap: wrap;">
+                          <div>
+                            <div class="item-name">Meu Estado & Ação Idle</div>
+                            <div class="item-sub">Escolha como seu avatar aparece na sala</div>
                           </div>
-                        `;
-                      })
-                      .join('')}
-                  </div>
-                `
-                : this.friendsTab === 'MY_ROOM'
-                  ? `
-                    <div style="display: flex; flex-direction: column; gap: 14px;">
-                      <!-- Status e Porta -->
-                      <div class="item-card" style="flex-wrap: wrap;">
-                        <div>
-                          <div class="item-name">Meu Estado & Ação Idle</div>
-                          <div class="item-sub">Escolha como seu avatar aparece na sala</div>
+                          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            <button class="btn btn-sm ${this.profile.hostStatus === 'ACTIVE' ? 'active-toggle' : ''}" data-status="ACTIVE">🟢 Ativo</button>
+                            <button class="btn btn-sm ${this.profile.hostStatus === 'IDLE' ? 'active-toggle' : ''}" data-idle="COFFEE">☕ Café</button>
+                            <button class="btn btn-sm" data-idle="TYPING">⌨️ Digitar</button>
+                            <button class="btn btn-sm" data-idle="SLEEPING">💤 Cochilar</button>
+                            <button class="btn btn-sm ${this.profile.hostStatus === 'DND' ? 'active-toggle' : ''}" data-status="DND">🔒 DND</button>
+                          </div>
                         </div>
-                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                          <button class="btn btn-sm ${this.profile.hostStatus === 'ACTIVE' ? 'active-toggle' : ''}" data-status="ACTIVE">🟢 Ativo</button>
-                          <button class="btn btn-sm ${this.profile.hostStatus === 'IDLE' ? 'active-toggle' : ''}" data-idle="COFFEE">☕ Café</button>
-                          <button class="btn btn-sm" data-idle="TYPING">⌨️ Digitar</button>
-                          <button class="btn btn-sm" data-idle="SLEEPING">💤 Cochilar</button>
-                          <button class="btn btn-sm ${this.profile.hostStatus === 'DND' ? 'active-toggle' : ''}" data-status="DND">🔒 DND</button>
-                        </div>
-                      </div>
 
-                      <div class="item-card" style="flex-wrap: wrap;">
-                        <div>
-                          <div class="item-name">Permissão da Porta</div>
-                          <div class="item-sub">Entrada direta ou pedir permissão (Toc-Toc)</div>
+                        <div class="item-card" style="flex-wrap: wrap;">
+                          <div>
+                            <div class="item-name">Permissão da Porta</div>
+                            <div class="item-sub">Entrada direta ou pedir permissão (Toc-Toc)</div>
+                          </div>
+                          <div style="display: flex; gap: 6px;">
+                            <button class="btn btn-sm ${this.profile.doorPermission === 'OPEN' ? 'active-toggle' : ''}" data-door="OPEN">🚪 Aberta</button>
+                            <button class="btn btn-sm ${this.profile.doorPermission === 'KNOCK' ? 'active-toggle' : ''}" data-door="KNOCK">🔔 Toc-Toc</button>
+                          </div>
                         </div>
-                        <div style="display: flex; gap: 6px;">
-                          <button class="btn btn-sm ${this.profile.doorPermission === 'OPEN' ? 'active-toggle' : ''}" data-door="OPEN">🚪 Aberta</button>
-                          <button class="btn btn-sm ${this.profile.doorPermission === 'KNOCK' ? 'active-toggle' : ''}" data-door="KNOCK">🔔 Toc-Toc</button>
-                        </div>
-                      </div>
 
-                      <!-- Lista de Visitantes na Sala para Expulsar -->
-                      <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 0.8rem; font-weight: 600;">
-                          Visitantes na sua sala agora (${visitors.length})
-                        </span>
+                        <!-- Lista de Visitantes na Sala para Expulsar -->
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                          <span style="font-size: 0.8rem; font-weight: 600;">
+                            Visitantes na sua sala agora (${visitors.length})
+                          </span>
+                          ${
+                            visitors.length > 0
+                              ? `<button class="btn btn-sm btn-danger" id="btn-panic-kick">🚨 Expulsar Todos</button>`
+                              : ''
+                          }
+                        </div>
+
                         ${
-                          visitors.length > 0
-                            ? `<button class="btn btn-sm btn-danger" id="btn-panic-kick">🚨 Expulsar Todos</button>`
-                            : ''
+                          visitors.length === 0
+                            ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 12px 0;">
+                                Nenhum visitante na sua sala no momento.
+                              </div>`
+                            : `<div class="items-grid">
+                                ${visitors
+                                  .map(
+                                    (v) => `
+                                      <div class="item-card">
+                                        <div class="item-info">
+                                          <div class="item-name">${this.escapeHtml(v.displayName)}</div>
+                                          <div class="item-sub">@${this.escapeHtml(v.username)}</div>
+                                        </div>
+                                        <button class="btn btn-sm btn-danger" data-kick-visitor="${v.userId}">
+                                          👢 Expulsar
+                                        </button>
+                                      </div>
+                                    `
+                                  )
+                                  .join('')}
+                              </div>`
                         }
+                      </div>
+                    `
+                    : `
+                      <!-- Aba Adicionar & Pedidos -->
+                      <div class="item-card" style="background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3);">
+                        <div class="item-info">
+                          <div class="item-name">Seu ID Único Permanente: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
+                          <div class="item-sub">Passe esse @ID para seus amigos te adicionarem (esse valor é fixo e nunca muda)</div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" id="btn-copy-my-id">📋 Copiar @ID</button>
+                      </div>
+
+                      <div style="display: flex; gap: 8px;">
+                        <input
+                          type="text"
+                          id="input-friend-username"
+                          class="chat-input-minimal"
+                          style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
+                          placeholder="Digite o @ID único do amigo (ex: @Rick ou @Rick2)..."
+                        />
+                        <button class="btn btn-primary" id="btn-add-friend">Enviar Pedido</button>
                       </div>
 
                       ${
-                        visitors.length === 0
-                          ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 12px 0;">
-                              Nenhum visitante na sua sala no momento.
+                        pendingIn.length === 0
+                          ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 8px 0;">
+                              Nenhum pedido de amizade pendente.
                             </div>`
                           : `<div class="items-grid">
-                              ${visitors
-                                .map(
-                                  (v) => `
+                              ${pendingIn
+                                .map((reqId) => {
+                                  const dirUser = this.directory.find((d) => d.userId === reqId);
+                                  const label = dirUser
+                                    ? `${dirUser.displayName} (@${dirUser.username})`
+                                    : reqId;
+                                  return `
                                     <div class="item-card">
                                       <div class="item-info">
-                                        <div class="item-name">${this.escapeHtml(v.displayName)}</div>
-                                        <div class="item-sub">@${this.escapeHtml(v.username)}</div>
+                                        <div class="item-name">${this.escapeHtml(label)}</div>
+                                        <div class="item-sub">Quer ser seu amigo</div>
                                       </div>
-                                      <button class="btn btn-sm btn-danger" data-kick-visitor="${v.userId}">
-                                        👢 Expulsar
-                                      </button>
+                                      <div style="display: flex; gap: 6px;">
+                                        <button class="btn btn-sm btn-primary" data-accept-friend="${reqId}">Aceitar</button>
+                                        <button class="btn btn-sm btn-danger" data-reject-friend="${reqId}">✕</button>
+                                      </div>
                                     </div>
-                                  `
-                                )
+                                  `;
+                                })
                                 .join('')}
                             </div>`
                       }
-                    </div>
-                  `
-                  : `
-                    <!-- Aba Adicionar & Pedidos -->
-                    <div style="display: flex; gap: 8px;">
-                      <input
-                        type="text"
-                        id="input-friend-username"
-                        class="chat-input-minimal"
-                        style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                        placeholder="Digite o @username do amigo..."
-                      />
-                      <button class="btn btn-primary" id="btn-add-friend">Enviar Pedido</button>
-                    </div>
-
-                    ${
-                      pendingIn.length === 0
-                        ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 8px 0;">
-                            Nenhum pedido de amizade pendente.
-                          </div>`
-                        : `<div class="items-grid">
-                            ${pendingIn
-                              .map((reqId) => {
-                                const dirUser = this.directory.find((d) => d.userId === reqId);
-                                const label = dirUser
-                                  ? `${dirUser.displayName} (@${dirUser.username})`
-                                  : reqId;
-                                return `
-                                  <div class="item-card">
-                                    <div class="item-info">
-                                      <div class="item-name">${this.escapeHtml(label)}</div>
-                                      <div class="item-sub">Quer ser seu amigo</div>
-                                    </div>
-                                    <div style="display: flex; gap: 6px;">
-                                      <button class="btn btn-sm btn-primary" data-accept-friend="${reqId}">Aceitar</button>
-                                      <button class="btn btn-sm btn-danger" data-reject-friend="${reqId}">✕</button>
-                                    </div>
-                                  </div>
-                                `;
-                              })
-                              .join('')}
-                          </div>`
-                    }
-                  `
-            }
+                    `
+              }
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
 
-    this.bindCommonPopupEvents();
+      this.bindCommonPopupEvents();
 
-    this.modalRootEl.querySelectorAll('[data-friends-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.friendsTab = (btn as HTMLElement).dataset.friendsTab as FriendsTab;
-        this.renderFriendsPopup();
+      this.modalRootEl.querySelectorAll('[data-friends-tab]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.friendsTab = (btn as HTMLElement).dataset.friendsTab as FriendsTab;
+          this.renderFriendsPopup();
+        });
       });
-    });
 
-    document.getElementById('btn-copy-invite')?.addEventListener('click', () => {
-      const url = `${window.location.origin}${window.location.pathname}?visit=${encodeURIComponent(
-        this.profile?.username || ''
-      )}`;
-      navigator.clipboard.writeText(url).then(() => {
-        this.showToast('success', '🔗 Link de convite copiado!');
+      document.getElementById('btn-copy-my-id')?.addEventListener('click', () => {
+        const myTag = `@${this.profile?.username || ''}`;
+        navigator.clipboard.writeText(myTag).then(() => {
+          this.showToast('success', `📋 Seu ID único (${myTag}) foi copiado!`);
+        });
       });
-    });
 
-    document.getElementById('btn-summon-bot')?.addEventListener('click', () => {
-      this.socket.emit('bot:summon_visit');
-    });
+      document.getElementById('btn-copy-invite')?.addEventListener('click', () => {
+        const url = `${window.location.origin}${window.location.pathname}?visit=${encodeURIComponent(
+          this.profile?.username || ''
+        )}`;
+        navigator.clipboard.writeText(url).then(() => {
+          this.showToast('success', '🔗 Link de convite copiado!');
+        });
+      });
 
-    document.getElementById('btn-panic-kick')?.addEventListener('click', () => {
-      this.socket.emit('room:kick_all');
-    });
+      document.getElementById('btn-summon-bot')?.addEventListener('click', () => {
+        this.socket.emit('bot:summon_visit');
+      });
 
-    document.getElementById('btn-add-friend')?.addEventListener('click', () => {
-      const inp = document.getElementById('input-friend-username') as HTMLInputElement;
-      const val = inp?.value.trim();
-      if (!val) return;
-      this.socket.emit('friends:add', { usernameOrId: val });
-      inp.value = '';
-    });
+      document.getElementById('btn-panic-kick')?.addEventListener('click', () => {
+        this.socket.emit('room:kick_all');
+      });
+
+      const sendFriendReq = () => {
+        const inp = document.getElementById('input-friend-username') as HTMLInputElement;
+        const val = inp?.value.trim();
+        if (!val) return;
+        if (!val.startsWith('@') || val.length < 2) {
+          this.showToast(
+            'warning',
+            'Digite o ID único começando com @ (exemplo: @Rick ou @Rick2).'
+          );
+          return;
+        }
+        this.socket.emit('friends:add', { usernameOrId: val });
+        inp.value = '';
+      };
+
+      document.getElementById('btn-add-friend')?.addEventListener('click', sendFriendReq);
+      document.getElementById('input-friend-username')?.addEventListener('keydown', (e) => {
+        if ((e as KeyboardEvent).key === 'Enter') {
+          e.preventDefault();
+          sendFriendReq();
+        }
+      });
 
     this.modalRootEl.querySelectorAll('[data-status]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1610,6 +1641,23 @@ class PocketCornerApp {
 
               <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="font-size: 0.74rem; color: var(--text-secondary);">
+                  🔒 ID Único Permanente (para amigos te adicionarem — não pode ser alterado)
+                </label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input
+                    type="text"
+                    readonly
+                    disabled
+                    class="chat-input-minimal"
+                    style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 9px 12px; color: var(--accent-cyan); font-weight: 700; cursor: not-allowed; opacity: 0.85;"
+                    value="@${this.escapeHtml(this.profile?.username || '')}"
+                  />
+                  <button class="btn btn-sm" id="btn-copy-profile-id" title="Copiar seu @ID único">📋 Copiar</button>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 0.74rem; color: var(--text-secondary);">
                   Nickname que aparece na sala (em cima do bonequinho)
                 </label>
                 <input
@@ -1657,6 +1705,13 @@ class PocketCornerApp {
     `;
 
     this.bindCommonPopupEvents();
+
+    document.getElementById('btn-copy-profile-id')?.addEventListener('click', () => {
+      const myTag = `@${this.profile?.username || ''}`;
+      navigator.clipboard.writeText(myTag).then(() => {
+        this.showToast('success', `📋 Seu ID único (${myTag}) foi copiado!`);
+      });
+    });
 
     document.getElementById('btn-save-profile')?.addEventListener('click', () => {
       const dInp = (document.getElementById('modal-displayname') as HTMLInputElement).value.trim();

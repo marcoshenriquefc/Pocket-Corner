@@ -1112,12 +1112,21 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
   // 6.2. Grafo Social de Amizade (PENDING -> ACCEPTED)
   // ------------------------------------------
   socket.on('friends:add', ({ usernameOrId }) => {
-    const target = store.findUserByUsernameOrId(usernameOrId);
+    const rawQuery = String(usernameOrId || '').trim();
+    if (!rawQuery.startsWith('@') || rawQuery.length < 2) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Para adicionar um amigo, digite o ID único começando com @ (ex: @Rick ou @Rick2).',
+      });
+      return;
+    }
+
+    const target = store.findUserByUsernameOrId(rawQuery);
     const u = store.getUserById(userId);
     if (!u || !target) {
       socket.emit('system:toast', {
         type: 'error',
-        message: 'Usuário não encontrado com esse @username ou ID.',
+        message: `Nenhum jogador encontrado com o ID único "${rawQuery}".`,
       });
       return;
     }
