@@ -2807,8 +2807,15 @@ class PocketCornerApp {
                               </thead>
                               <tbody>
                                 ${this.adminDashboard.paymentTransactions
-                                  .map(
-                                    (tx) => `
+                                  .map((tx) => {
+                                    const statusLabelMap: Record<string, string> = {
+                                      APPROVED: 'APROVADO',
+                                      PENDING: 'PENDENTE',
+                                      CANCELLED: 'CANCELADO',
+                                      REJECTED: 'REJEITADO',
+                                    };
+                                    const statusLabel = statusLabelMap[tx.status] || tx.status;
+                                    return `
                                       <tr>
                                         <td>${formatDate(tx.approvedAt || tx.createdAt)}</td>
                                         <td>
@@ -2822,15 +2829,15 @@ class PocketCornerApp {
                                         </td>
                                         <td>
                                           <span class="tx-status-pill tx-status-${tx.status}">
-                                            ${tx.status}
+                                            ${statusLabel}
                                           </span>
                                         </td>
                                         <td style="font-family:monospace; font-size:0.66rem; color:var(--text-muted);">
                                           ${this.escapeHtml(tx.mpPaymentId || tx.id)}
                                         </td>
                                       </tr>
-                                    `
-                                  )
+                                    `;
+                                  })
                                   .join('')}
                               </tbody>
                             </table>

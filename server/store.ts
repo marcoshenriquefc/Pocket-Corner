@@ -1167,7 +1167,30 @@ export class PocketStore {
     };
   }
 
+  /**
+   * Cancela automaticamente transações PIX que ficaram como PENDING sem pagamento
+   * após o tempo limite (padrão: 15 minutos).
+   */
+  public expireStalePendingTransactions(maxAgeMs = 15 * 60 * 1000): boolean {
+    const txs = this.db.paymentTransactions || [];
+    const now = Date.now();
+    let changed = false;
+
+    for (const t of txs) {
+      if (t.status === 'PENDING' && now - (t.createdAt || 0) >= maxAgeMs) {
+        t.status = 'CANCELLED';
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.saveDB();
+    }
+    return changed;
+  }
+
   public getAdminDashboardData() {
+    this.expireStalePendingTransactions();
     const txs = this.db.paymentTransactions || [];
     const logs = this.db.shopPurchaseLogs || [];
 

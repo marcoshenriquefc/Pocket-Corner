@@ -480,6 +480,9 @@ async function verifyAndFulfillMercadoPagoPayment(
         rawStatus === 'rejected' ? 'REJECTED' : 'CANCELLED'
       );
       return { ok: true, status: rawStatus.toUpperCase(), approved: false };
+    } else if (Date.now() - (tx.createdAt || 0) >= 15 * 60 * 1000) {
+      store.updatePaymentTransactionStatus(tx.id, 'CANCELLED');
+      return { ok: true, status: 'CANCELLED', approved: false };
     }
 
     return { ok: true, status: 'PENDING', approved: false };
@@ -535,11 +538,13 @@ app.post('/api/payments/create', async (req, res) => {
 
   try {
     const publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+    const expirationIso = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const mpBody: Record<string, unknown> = {
       transaction_amount: Number(pkg.priceBrl.toFixed(2)),
       description: `Pocket Corner - ${pkg.name} (@${authUser.username})`,
       payment_method_id: 'pix',
       external_reference: tx.id,
+      date_of_expiration: expirationIso,
       payer: {
         email: authUser.email || `${authUser.username}@pocketcorner.app`,
         first_name: authUser.displayName || authUser.username,
@@ -630,6 +635,12 @@ app.get('/api/payments/check/:txId', async (req, res) => {
     return;
   }
 
+  if (tx.status === 'PENDING' && Date.now() - (tx.createdAt || 0) >= 15 * 60 * 1000) {
+    store.updatePaymentTransactionStatus(tx.id, 'CANCELLED');
+    res.json({ ok: true, status: 'CANCELLED', approved: false });
+    return;
+  }
+
   res.json({ ok: true, status: tx.status, approved: false });
 });
 
@@ -659,7 +670,7 @@ app.post('/api/payments/webhook', async (req, res) => {
 // NUNCA CONFIA NO FRONTEND: exige usuário Google autenticado cujo e-mail no banco
 // seja idêntico ao ADMIN_EMAIL definido no .env do servidor!
 // ==========================================
-app.get('/api/admin/dashboard', (req, res) => {
+app.get('/api/admin/dashboard', async (req, res) => {
   dotenv.config({ override: true });
   const authUser = resolveAuthenticatedRequestUser(req);
   if (!authUser) {
@@ -673,6 +684,18 @@ app.get('/api/admin/dashboard', (req, res) => {
         '⛔ Acesso negado pelo servidor: sua conta Google não está autorizada como ADMIN_EMAIL.',
     });
     return;
+  }
+
+  // Sincroniza transações PENDING recentes com o Mercado Pago e cancela as expiradas (> 15 min)
+  const initialData = store.getAdminDashboardData();
+  const pendingWithMp = initialData.paymentTransactions
+    .filter((t) => t.status === 'PENDING' && t.mpPaymentId)
+    .slice(0, 10);
+
+  for (const ptx of pendingWithMp) {
+    if (ptx.mpPaymentId) {
+      await verifyAndFulfillMercadoPagoPayment(ptx.mpPaymentId, ptx.id);
+    }
   }
 
   const data = store.getAdminDashboardData();
