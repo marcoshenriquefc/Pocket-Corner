@@ -1118,19 +1118,19 @@ export const REAL_MONEY_PACKAGES: RealMoneyPackage[] = [
     coinsAmount: 1500,
     bonusCoins: 400,
   },
-  {
-    id: 'pkg_test_1cent',
-    name: 'Item Teste (1 Centavo)',
-    subtitle: '1 Pip Diamante 💎 (Teste PIX Real)',
-    description: 'Pacote de R$ 0,01 (1 centavo) para testar a integração real com o Mercado Pago.',
-    icon: '🧪',
-    badgeText: 'TESTE R$ 0,01',
-    priceBrl: 0.01,
-    type: 'GEMS_PACK',
-    gemsAmount: 1,
-    bonusGems: 0,
-    isTestItem: true,
-  },
+  // {
+  //   id: 'pkg_test_1cent',
+  //   name: 'Item Teste (1 Centavo)',
+  //   subtitle: '1 Pip Diamante 💎 (Teste PIX Real)',
+  //   description: 'Pacote de R$ 0,01 (1 centavo) para testar a integração real com o Mercado Pago.',
+  //   icon: '🧪',
+  //   badgeText: 'TESTE R$ 0,01',
+  //   priceBrl: 0.01,
+  //   type: 'GEMS_PACK',
+  //   gemsAmount: 1,
+  //   bonusGems: 0,
+  //   isTestItem: true,
+  // },
 ];
 
 export const CATALOG_BY_ID = new Map<string, CosmeticItem>(
