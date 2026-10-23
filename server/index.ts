@@ -1716,20 +1716,21 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
   // ------------------------------------------
   socket.on('friends:add', ({ usernameOrId }) => {
     const rawQuery = String(usernameOrId || '').trim();
-    if (!rawQuery.startsWith('@') || rawQuery.length < 2) {
+    const cleanQuery = rawQuery.replace(/^@/, '').trim();
+    if (cleanQuery.length < 1) {
       socket.emit('system:toast', {
         type: 'warning',
-        message: 'Para adicionar um amigo, digite o ID único começando com @ (ex: @Rick ou @Rick2).',
+        message: 'Digite o @ID único do amigo para enviar o convite (ex: @Rick ou Rick).',
       });
       return;
     }
 
-    const target = store.findUserByUsernameOrId(rawQuery);
+    const target = store.findUserByUsernameOrId(cleanQuery);
     const u = store.getUserById(userId);
     if (!u || !target) {
       socket.emit('system:toast', {
         type: 'error',
-        message: `Nenhum jogador encontrado com o ID único "${rawQuery}".`,
+        message: `Nenhum jogador encontrado com o ID "${rawQuery}".`,
       });
       return;
     }
@@ -1742,8 +1743,11 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     }
 
     const res = store.requestOrAcceptFriendship(userId, target.id, false);
-    socket.emit('auth:profile', store.getUserById(userId)!);
-    emitToUser(target.id, 'auth:profile', store.getUserById(target.id)!);
+    const updatedSender = store.getUserById(userId)!;
+    const updatedTarget = store.getUserById(target.id)!;
+
+    socket.emit('auth:profile', updatedSender);
+    emitToUser(target.id, 'auth:profile', updatedTarget);
 
     socket.emit('system:toast', {
       type: res.status === 'ERROR' ? 'error' : 'success',
@@ -1751,14 +1755,70 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     });
 
     if (res.status === 'PENDING') {
+      socket.emit('friends:invite_alert', {
+        kind: 'SENT',
+        fromUserId: updatedSender.id,
+        fromUsername: updatedSender.username,
+        fromDisplayName: updatedSender.displayName,
+        fromAvatarBody: updatedSender.equipped.avatar_body,
+        targetUserId: updatedTarget.id,
+        targetUsername: updatedTarget.username,
+        targetDisplayName: updatedTarget.displayName,
+        targetAvatarBody: updatedTarget.equipped.avatar_body,
+        pendingIncomingCount: updatedSender.pendingIncomingFriends?.length || 0,
+        pendingOutgoingCount: updatedSender.pendingOutgoingFriends?.length || 0,
+      });
+
+      emitToUser(target.id, 'friends:invite_alert', {
+        kind: 'INCOMING',
+        fromUserId: updatedSender.id,
+        fromUsername: updatedSender.username,
+        fromDisplayName: updatedSender.displayName,
+        fromAvatarBody: updatedSender.equipped.avatar_body,
+        targetUserId: updatedTarget.id,
+        targetUsername: updatedTarget.username,
+        targetDisplayName: updatedTarget.displayName,
+        targetAvatarBody: updatedTarget.equipped.avatar_body,
+        pendingIncomingCount: updatedTarget.pendingIncomingFriends?.length || 0,
+        pendingOutgoingCount: updatedTarget.pendingOutgoingFriends?.length || 0,
+      });
+
       emitToUser(target.id, 'system:toast', {
         type: 'info',
-        message: `📨 ${u.displayName} (@${u.username}) enviou um pedido de amizade! Aceite na aba Salas & Amigos.`,
+        message: `📨 ${updatedSender.displayName} (@${updatedSender.username}) enviou um pedido de amizade!`,
       });
     } else if (res.status === 'ACCEPTED') {
+      socket.emit('friends:invite_alert', {
+        kind: 'ACCEPTED',
+        fromUserId: updatedSender.id,
+        fromUsername: updatedSender.username,
+        fromDisplayName: updatedSender.displayName,
+        fromAvatarBody: updatedSender.equipped.avatar_body,
+        targetUserId: updatedTarget.id,
+        targetUsername: updatedTarget.username,
+        targetDisplayName: updatedTarget.displayName,
+        targetAvatarBody: updatedTarget.equipped.avatar_body,
+        pendingIncomingCount: updatedSender.pendingIncomingFriends?.length || 0,
+        pendingOutgoingCount: updatedSender.pendingOutgoingFriends?.length || 0,
+      });
+
+      emitToUser(target.id, 'friends:invite_alert', {
+        kind: 'ACCEPTED',
+        fromUserId: updatedSender.id,
+        fromUsername: updatedSender.username,
+        fromDisplayName: updatedSender.displayName,
+        fromAvatarBody: updatedSender.equipped.avatar_body,
+        targetUserId: updatedTarget.id,
+        targetUsername: updatedTarget.username,
+        targetDisplayName: updatedTarget.displayName,
+        targetAvatarBody: updatedTarget.equipped.avatar_body,
+        pendingIncomingCount: updatedTarget.pendingIncomingFriends?.length || 0,
+        pendingOutgoingCount: updatedTarget.pendingOutgoingFriends?.length || 0,
+      });
+
       emitToUser(target.id, 'system:toast', {
         type: 'success',
-        message: `🤝 ${u.displayName} (@${u.username}) e você agora são amigos (ACCEPTED)!`,
+        message: `🤝 ${updatedSender.displayName} (@${updatedSender.username}) e você agora são amigos!`,
       });
     }
     broadcastDirectory();
@@ -1771,15 +1831,43 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     if (u) socket.emit('auth:profile', u);
     if (reqUser) {
       emitToUser(requesterUserId, 'auth:profile', reqUser);
+      if (accept && u) {
+        emitToUser(requesterUserId, 'friends:invite_alert', {
+          kind: 'ACCEPTED',
+          fromUserId: u.id,
+          fromUsername: u.username,
+          fromDisplayName: u.displayName,
+          fromAvatarBody: u.equipped.avatar_body,
+          targetUserId: reqUser.id,
+          targetUsername: reqUser.username,
+          targetDisplayName: reqUser.displayName,
+          targetAvatarBody: reqUser.equipped.avatar_body,
+          pendingIncomingCount: reqUser.pendingIncomingFriends?.length || 0,
+          pendingOutgoingCount: reqUser.pendingOutgoingFriends?.length || 0,
+        });
+      }
       emitToUser(requesterUserId, 'system:toast', {
         type: accept ? 'success' : 'info',
         message: accept
-          ? `🤝 ${u?.displayName} aceitou seu pedido de amizade (ACCEPTED)! Já pode visitar o cantinho!`
+          ? `🤝 ${u?.displayName} aceitou seu pedido de amizade! Já pode visitar o cantinho!`
           : `${u?.displayName} recusou o pedido de amizade.`,
       });
     }
     socket.emit('system:toast', {
       type: res.ok ? 'success' : 'error',
+      message: res.message,
+    });
+    broadcastDirectory();
+  });
+
+  socket.on('friends:cancel', ({ targetUserId }) => {
+    const res = store.cancelFriendshipRequest(userId, targetUserId);
+    const u = store.getUserById(userId);
+    const targetUser = store.getUserById(targetUserId);
+    if (u) socket.emit('auth:profile', u);
+    if (targetUser) emitToUser(targetUserId, 'auth:profile', targetUser);
+    socket.emit('system:toast', {
+      type: res.ok ? 'info' : 'error',
       message: res.message,
     });
     broadcastDirectory();

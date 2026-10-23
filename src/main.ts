@@ -224,6 +224,16 @@ class PocketCornerApp {
   private wellnessMsgIndex = 0;
   private lastAttentionSentAt = 0;
   private nudgeDomTimer: number | null = null;
+  private activeFriendAlert: {
+    kind: 'INCOMING' | 'SENT' | 'ACCEPTED';
+    userId: string;
+    username: string;
+    displayName: string;
+    avatarBody: string;
+    expiresAt: number;
+  } | null = null;
+  private friendAlertTimer: number | null = null;
+  private dismissedIncomingFriendIds = new Set<string>();
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -957,6 +967,49 @@ class PocketCornerApp {
     return other?.userId || this.profile?.id || '';
   }
 
+  private openPendingFriendsShortcut() {
+    this.friendsTab = 'REQUESTS';
+    this.openModal('FRIENDS');
+  }
+
+  private resolveFriendMeta(userId: string): {
+    userId: string;
+    username: string;
+    displayName: string;
+    icon: string;
+    isOnline: boolean;
+  } {
+    const dir = this.directory.find((d) => d.userId === userId);
+    if (dir) {
+      const bodyItem = getCosmeticById(dir.equipped.avatar_body);
+      return {
+        userId,
+        username: dir.username,
+        displayName: dir.displayName,
+        icon: bodyItem?.icon || '🧑',
+        isOnline: true,
+      };
+    }
+    const summary = this.profile?.friendProfiles?.[userId];
+    if (summary) {
+      const bodyItem = getCosmeticById(summary.avatarBody);
+      return {
+        userId,
+        username: summary.username,
+        displayName: summary.displayName,
+        icon: bodyItem?.icon || '🧑',
+        isOnline: Boolean(summary.isOnline),
+      };
+    }
+    return {
+      userId,
+      username: userId,
+      displayName: userId,
+      icon: '🧑',
+      isOnline: false,
+    };
+  }
+
   private connectSocket() {
     const session = this.authSession || {
       mode: 'local',
@@ -995,7 +1048,9 @@ class PocketCornerApp {
         JSON.stringify(prev.placedFurniture) !== JSON.stringify(profile.placedFurniture) ||
         JSON.stringify(prev.friends) !== JSON.stringify(profile.friends) ||
         JSON.stringify(prev.pendingIncomingFriends) !==
-          JSON.stringify(profile.pendingIncomingFriends);
+          JSON.stringify(profile.pendingIncomingFriends) ||
+        JSON.stringify(prev.pendingOutgoingFriends) !==
+          JSON.stringify(profile.pendingOutgoingFriends);
 
       this.profile = profile;
       if (this.authSession) {
@@ -1011,6 +1066,7 @@ class PocketCornerApp {
       }
       this.renderer.setIdentity(profile.id);
       this.renderTopbar();
+      this.renderKnockBanner();
       this.renderFloatingDock();
       this.renderQuickFriendsStrip();
       this.updateQuickActionsMenuState();
@@ -1142,6 +1198,57 @@ class PocketCornerApp {
           : `🎰 Você ganhou ${item.icon} ${item.name} (${item.rarity})!`
       );
       if (this.activeModal !== 'NONE') {
+        this.renderActiveModal();
+      }
+    });
+
+    this.socket.on('friends:invite_alert', (payload) => {
+      if (payload.kind === 'SENT') {
+        soundEngine.playFriendInviteSent();
+      } else if (payload.kind === 'INCOMING' || payload.kind === 'ACCEPTED') {
+        soundEngine.playFriendRequestAlert();
+      }
+
+      const isTargetOther =
+        payload.kind === 'SENT' ||
+        (payload.kind === 'ACCEPTED' && payload.fromUserId === this.profile?.id);
+      const otherUserId = isTargetOther ? payload.targetUserId : payload.fromUserId;
+      const otherUsername = isTargetOther ? payload.targetUsername : payload.fromUsername;
+      const otherDisplayName = isTargetOther
+        ? payload.targetDisplayName
+        : payload.fromDisplayName;
+      const otherAvatarBody = isTargetOther
+        ? payload.targetAvatarBody
+        : payload.fromAvatarBody;
+
+      if (payload.kind === 'INCOMING') {
+        this.dismissedIncomingFriendIds.delete(otherUserId);
+      }
+
+      if (payload.kind === 'SENT' || payload.kind === 'INCOMING' || payload.kind === 'ACCEPTED') {
+        this.activeFriendAlert = {
+          kind: payload.kind,
+          userId: otherUserId,
+          username: otherUsername,
+          displayName: otherDisplayName,
+          avatarBody: otherAvatarBody,
+          expiresAt: Date.now() + 14000,
+        };
+        if (this.friendAlertTimer) {
+          window.clearTimeout(this.friendAlertTimer);
+        }
+        this.friendAlertTimer = window.setTimeout(() => {
+          this.activeFriendAlert = null;
+          this.friendAlertTimer = null;
+          this.renderKnockBanner();
+        }, 14000);
+      }
+
+      this.renderTopbar();
+      this.renderKnockBanner();
+      this.renderFloatingDock();
+      this.renderQuickFriendsStrip();
+      if (this.activeModal === 'FRIENDS') {
         this.renderActiveModal();
       }
     });
@@ -1727,6 +1834,9 @@ class PocketCornerApp {
     const playersCount = this.room?.players.length || 0;
     const isCoWorking = !isHostAway && playersCount >= 2;
     const canCallAttention = !isMyRoom || playersCount >= 2;
+    const pendingInCount = this.profile.pendingIncomingFriends?.length || 0;
+    const pendingOutCount = this.profile.pendingOutgoingFriends?.length || 0;
+    const totalPendingFriends = pendingInCount + pendingOutCount;
 
     this.topbarEl.innerHTML = `
       <div class="topbar-left">
@@ -1748,6 +1858,22 @@ class PocketCornerApp {
                 : `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
           }
         </span>
+
+        ${
+          totalPendingFriends > 0
+            ? `<button
+                class="btn btn-sm pending-friends-shortcut ${pendingInCount > 0 ? 'has-incoming' : 'has-outgoing'}"
+                id="btn-top-pending-friends"
+                title="${
+                  pendingInCount > 0
+                    ? `${pendingInCount} pedido(s) de amizade recebido(s) aguardando resposta! Clique para abrir Amizades Pendentes`
+                    : `${pendingOutCount} convite(s) de amizade enviado(s) aguardando aceitação! Clique para abrir Amizades Pendentes`
+                }"
+              >
+                ${pendingInCount > 0 ? `📨 Amizades Pendentes (${totalPendingFriends})` : `⏳ Amizades Pendentes (${totalPendingFriends})`}
+              </button>`
+            : ''
+        }
 
         ${
           isCoWorking
@@ -1811,6 +1937,10 @@ class PocketCornerApp {
       this.openModal('PROFILE');
     });
 
+    document.getElementById('btn-top-pending-friends')?.addEventListener('click', () => {
+      this.openPendingFriendsShortcut();
+    });
+
     document.getElementById('btn-top-buy-coins')?.addEventListener('click', () => {
       this.shopTab = 'DIAMANTES';
       this.shopSubTab = 'MOEDAS_PACKS';
@@ -1857,7 +1987,9 @@ class PocketCornerApp {
   private renderFloatingDock() {
     this.renderAmbientSoundBar();
 
-    const pendingFriends = this.profile?.pendingIncomingFriends?.length || 0;
+    const pendingIn = this.profile?.pendingIncomingFriends?.length || 0;
+    const pendingOut = this.profile?.pendingOutgoingFriends?.length || 0;
+    const pendingFriends = pendingIn + pendingOut;
     const visitorsInMyRoom =
       this.room && this.profile && this.room.hostUserId === this.profile.id
         ? this.room.players.filter((p) => p.userId !== this.profile?.id).length
@@ -1909,6 +2041,9 @@ class PocketCornerApp {
       this.openModal('SHOP');
     });
     document.getElementById('dock-btn-friends')?.addEventListener('click', () => {
+      if (this.activeModal !== 'FRIENDS' && pendingFriends > 0) {
+        this.friendsTab = 'REQUESTS';
+      }
       this.toggleModal('FRIENDS');
     });
     document.getElementById('dock-btn-backpack')?.addEventListener('click', () => {
@@ -2005,6 +2140,9 @@ class PocketCornerApp {
     const playersCount = this.room?.players.length || 0;
     const canCallAttention = !isMyRoom || playersCount >= 2;
     const myBodyItem = getCosmeticById(this.profile.equipped.avatar_body);
+    const pendingInCount = this.profile.pendingIncomingFriends?.length || 0;
+    const pendingOutCount = this.profile.pendingOutgoingFriends?.length || 0;
+    const totalPendingFriends = pendingInCount + pendingOutCount;
 
     const others = this.directory
       .filter((d) => d.userId !== this.profile?.id)
@@ -2027,6 +2165,23 @@ class PocketCornerApp {
         <span class="quick-friend-avatar">${myBodyItem?.icon || '🏠'}</span>
         <span>Meu Cantinho</span>
       </button>
+
+      ${
+        totalPendingFriends > 0
+          ? `<button
+              class="quick-friend-chip pending-friends-chip ${pendingInCount > 0 ? 'has-incoming' : 'has-outgoing'}"
+              id="quick-strip-pending-friends"
+              title="${
+                pendingInCount > 0
+                  ? `Você tem ${pendingInCount} pedido(s) de amizade recebido(s)! Clique para responder`
+                  : `Você tem ${pendingOutCount} convite(s) de amizade enviado(s) aguardando aceitação! Clique para ver`
+              }"
+            >
+              <span class="quick-friend-avatar">${pendingInCount > 0 ? '📨' : '⏳'}</span>
+              <span>Amizades Pendentes (${totalPendingFriends})</span>
+            </button>`
+          : ''
+      }
 
       ${
         canCallAttention
@@ -2054,15 +2209,25 @@ class PocketCornerApp {
               !isInMyRoom
           );
           const isFriend = entry.isBot || this.profile!.friends.includes(entry.userId);
+          const isPendingIn = Boolean(
+            this.profile!.pendingIncomingFriends?.includes(entry.userId)
+          );
+          const isPendingOut = Boolean(
+            this.profile!.pendingOutgoingFriends?.includes(entry.userId)
+          );
           const statusTitle = entry.workStatus ? ` • 🪧 "${entry.workStatus}"` : '';
           const actionHint = isVisitingThem
             ? isAwayVisitingOther
               ? 'Você está na sala (Amigo saiu para visitar outra pessoa: "Volto já")'
               : 'Você está visitando esta sala'
-            : entry.hostStatus === 'DND'
+            : entry.hostStatus === 'DND' && isFriend
               ? 'Modo DND — Clique para deixar um café com Post-it!'
               : !isFriend
-                ? 'Clique para enviar pedido de amizade'
+                ? isPendingIn
+                  ? 'Enviou pedido de amizade para você! Clique para aceitar agora'
+                  : isPendingOut
+                    ? 'Convite de amizade enviado (Aguardando aceitação) — Clique para ver pendentes'
+                    : 'Clique para enviar pedido de amizade'
                 : isAwayVisitingOther
                   ? 'Saiu para visitar outro cantinho ("Volto já")'
                   : entry.doorPermission === 'KNOCK'
@@ -2079,17 +2244,21 @@ class PocketCornerApp {
               <span class="quick-friend-avatar">${bodyItem?.icon || '🧑'}</span>
               <span>${this.escapeHtml(entry.displayName)}</span>
               ${
-                isAwayVisitingOther
-                  ? `<span class="quick-friend-tag" style="color: #fde047;">🪧 Volto já</span>`
-                  : entry.workStatus
-                    ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
-                    : isVisitingThem
-                      ? `<span class="quick-friend-tag">📍 Na sala</span>`
-                      : isInMyRoom
-                        ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
-                        : entry.hostStatus === 'DND'
-                          ? `<span class="quick-friend-tag">📫</span>`
-                          : ''
+                isPendingIn
+                  ? `<span class="quick-friend-tag" style="color: #fde047; font-weight: 800;">📨 Aceitar!</span>`
+                  : isPendingOut
+                    ? `<span class="quick-friend-tag" style="color: #93c5fd;">⏳ Pendente</span>`
+                    : isAwayVisitingOther
+                      ? `<span class="quick-friend-tag" style="color: #fde047;">🪧 Volto já</span>`
+                      : entry.workStatus
+                        ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
+                        : isVisitingThem
+                          ? `<span class="quick-friend-tag">📍 Na sala</span>`
+                          : isInMyRoom
+                            ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
+                            : entry.hostStatus === 'DND'
+                              ? `<span class="quick-friend-tag">📫</span>`
+                              : ''
               }
             </button>
           `;
@@ -2116,6 +2285,10 @@ class PocketCornerApp {
       }
     });
 
+    document.getElementById('quick-strip-pending-friends')?.addEventListener('click', () => {
+      this.openPendingFriendsShortcut();
+    });
+
     document.getElementById('quick-strip-attention')?.addEventListener('click', () => {
       this.sendMsnAttention();
     });
@@ -2137,6 +2310,14 @@ class PocketCornerApp {
 
         const isFriend = entry.isBot || this.profile.friends.includes(targetId);
         if (!isFriend) {
+          if (this.profile.pendingIncomingFriends?.includes(targetId)) {
+            this.socket.emit('friends:respond', { requesterUserId: targetId, accept: true });
+            return;
+          }
+          if (this.profile.pendingOutgoingFriends?.includes(targetId)) {
+            this.openPendingFriendsShortcut();
+            return;
+          }
           this.socket.emit('friends:add', { usernameOrId: `@${entry.username}` });
           return;
         }
@@ -2156,37 +2337,193 @@ class PocketCornerApp {
   }
 
   private renderKnockBanner() {
-    if (!this.room || !this.profile) return;
-    const isMyRoom = this.room.hostUserId === this.profile.id;
-    const knock: KnockRequest | undefined = this.room.pendingKnocks[0];
+    if (!this.profile) return;
+    const isMyRoom = Boolean(this.room && this.room.hostUserId === this.profile.id);
+    const knock: KnockRequest | undefined = isMyRoom ? this.room?.pendingKnocks[0] : undefined;
 
-    if (!isMyRoom || !knock) {
+    const pendingIn = this.profile.pendingIncomingFriends || [];
+    const pendingOut = this.profile.pendingOutgoingFriends || [];
+    const totalPending = pendingIn.length + pendingOut.length;
+
+    const now = Date.now();
+    const activeAlert =
+      this.activeFriendAlert && this.activeFriendAlert.expiresAt > now
+        ? this.activeFriendAlert
+        : null;
+
+    const firstUndismissedInId = pendingIn.find(
+      (id) => !this.dismissedIncomingFriendIds.has(id)
+    );
+
+    let friendBannerHtml = '';
+    if (activeAlert?.kind === 'SENT') {
+      const icon = getCosmeticById(activeAlert.avatarBody)?.icon || '📨';
+      friendBannerHtml = `
+        <div class="friend-invite-banner is-sent">
+          <div class="friend-invite-banner-main">
+            <span class="friend-invite-banner-icon">${icon}</span>
+            <div>
+              <div class="friend-invite-banner-title">
+                📨 Convite enviado para ${this.escapeHtml(activeAlert.displayName)} (@${this.escapeHtml(activeAlert.username)})!
+              </div>
+              <div class="friend-invite-banner-sub">
+                ⏳ Aguardando aceitação • Veja ou gerencie seus convites pendentes
+              </div>
+            </div>
+          </div>
+          <div class="friend-invite-banner-actions">
+            <button class="btn btn-sm btn-gold" id="btn-banner-open-pending">
+              ⏳ Amizades Pendentes (${ Math.max(1, totalPending) })
+            </button>
+            <button class="btn btn-icon btn-sm" id="btn-banner-close-friend" title="Fechar aviso">✕</button>
+          </div>
+        </div>
+      `;
+    } else if (activeAlert?.kind === 'ACCEPTED') {
+      const icon = getCosmeticById(activeAlert.avatarBody)?.icon || '🤝';
+      friendBannerHtml = `
+        <div class="friend-invite-banner is-accepted">
+          <div class="friend-invite-banner-main">
+            <span class="friend-invite-banner-icon">${icon}</span>
+            <div>
+              <div class="friend-invite-banner-title">
+                🤝 Nova amizade com ${this.escapeHtml(activeAlert.displayName)} (@${this.escapeHtml(activeAlert.username)})!
+              </div>
+              <div class="friend-invite-banner-sub">
+                Visite o cantinho para trabalhar juntos e ganhar +2 🪙!
+              </div>
+            </div>
+          </div>
+          <div class="friend-invite-banner-actions">
+            <button class="btn btn-sm btn-primary" id="btn-banner-visit-friend" data-uid="${this.escapeHtml(activeAlert.userId)}">
+              🚀 Visitar
+            </button>
+            <button class="btn btn-icon btn-sm" id="btn-banner-close-friend" title="Fechar aviso">✕</button>
+          </div>
+        </div>
+      `;
+    } else if (activeAlert?.kind === 'INCOMING' || firstUndismissedInId) {
+      const targetId =
+        activeAlert?.kind === 'INCOMING' ? activeAlert.userId : firstUndismissedInId!;
+      const meta = this.resolveFriendMeta(targetId);
+      const displayName =
+        activeAlert?.kind === 'INCOMING' ? activeAlert.displayName : meta.displayName;
+      const username =
+        activeAlert?.kind === 'INCOMING' ? activeAlert.username : meta.username;
+      const icon =
+        activeAlert?.kind === 'INCOMING'
+          ? getCosmeticById(activeAlert.avatarBody)?.icon || meta.icon
+          : meta.icon;
+
+      friendBannerHtml = `
+        <div class="friend-invite-banner is-incoming">
+          <div class="friend-invite-banner-main">
+            <span class="friend-invite-banner-icon">${icon}</span>
+            <div>
+              <div class="friend-invite-banner-title">
+                📨 ${this.escapeHtml(displayName)} (@${this.escapeHtml(username)}) enviou um convite de amizade!
+              </div>
+              <div class="friend-invite-banner-sub">
+                Aceite agora mesmo ou veja todas as amizades pendentes
+              </div>
+            </div>
+          </div>
+          <div class="friend-invite-banner-actions">
+            <button class="btn btn-sm btn-primary" id="btn-banner-accept-friend" data-uid="${this.escapeHtml(targetId)}">
+              ✓ Aceitar
+            </button>
+            <button class="btn btn-sm btn-danger" id="btn-banner-reject-friend" data-uid="${this.escapeHtml(targetId)}">
+              ✕ Recusar
+            </button>
+            <button class="btn btn-sm btn-gold" id="btn-banner-open-pending">
+              📨 Amizades Pendentes (${Math.max(1, totalPending)})
+            </button>
+            <button class="btn btn-icon btn-sm" id="btn-banner-close-friend" data-uid="${this.escapeHtml(targetId)}" title="Ocultar aviso">✕</button>
+          </div>
+        </div>
+      `;
+    }
+
+    let knockHtml = '';
+    if (isMyRoom && knock) {
+      const secsLeft = Math.max(0, Math.ceil((knock.expiresAt - now) / 1000));
+      knockHtml = `
+        <div class="knock-banner">
+          <div>
+            <div style="font-size: 0.76rem; font-weight: 700; color: var(--accent-gold);">
+              🔔 ${this.escapeHtml(knock.visitorDisplayName)} bateu na porta!
+            </div>
+            <div style="font-size: 0.66rem; color: var(--text-secondary);">
+              Expira em ${secsLeft}s
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" id="btn-knock-accept">Aceitar</button>
+          <button class="btn btn-sm btn-danger" id="btn-knock-reject">Recusar</button>
+        </div>
+      `;
+    }
+
+    if (!knockHtml && !friendBannerHtml) {
       this.knockBannerContainerEl.innerHTML = '';
       return;
     }
 
-    const secsLeft = Math.max(0, Math.ceil((knock.expiresAt - Date.now()) / 1000));
-    this.knockBannerContainerEl.innerHTML = `
-      <div class="knock-banner">
-        <div>
-          <div style="font-size: 0.76rem; font-weight: 700; color: var(--accent-gold);">
-            🔔 ${this.escapeHtml(knock.visitorDisplayName)} bateu na porta!
-          </div>
-          <div style="font-size: 0.66rem; color: var(--text-secondary);">
-            Expira em ${secsLeft}s
-          </div>
-        </div>
-        <button class="btn btn-sm btn-primary" id="btn-knock-accept">Aceitar</button>
-        <button class="btn btn-sm btn-danger" id="btn-knock-reject">Recusar</button>
-      </div>
-    `;
+    this.knockBannerContainerEl.innerHTML = `${friendBannerHtml}${knockHtml}`;
 
-    document.getElementById('btn-knock-accept')?.addEventListener('click', () => {
-      this.socket.emit('room:knock_respond', { knockId: knock.id, accept: true });
+    if (knock) {
+      document.getElementById('btn-knock-accept')?.addEventListener('click', () => {
+        this.socket.emit('room:knock_respond', { knockId: knock.id, accept: true });
+      });
+
+      document.getElementById('btn-knock-reject')?.addEventListener('click', () => {
+        this.socket.emit('room:knock_respond', { knockId: knock.id, accept: false });
+      });
+    }
+
+    document.getElementById('btn-banner-open-pending')?.addEventListener('click', () => {
+      this.activeFriendAlert = null;
+      this.renderKnockBanner();
+      this.openPendingFriendsShortcut();
     });
 
-    document.getElementById('btn-knock-reject')?.addEventListener('click', () => {
-      this.socket.emit('room:knock_respond', { knockId: knock.id, accept: false });
+    document.getElementById('btn-banner-accept-friend')?.addEventListener('click', (e) => {
+      const uid = (e.currentTarget as HTMLElement).dataset.uid;
+      if (uid) {
+        this.activeFriendAlert = null;
+        this.dismissedIncomingFriendIds.add(uid);
+        this.socket.emit('friends:respond', { requesterUserId: uid, accept: true });
+      }
+    });
+
+    document.getElementById('btn-banner-reject-friend')?.addEventListener('click', (e) => {
+      const uid = (e.currentTarget as HTMLElement).dataset.uid;
+      if (uid) {
+        this.activeFriendAlert = null;
+        this.dismissedIncomingFriendIds.add(uid);
+        this.socket.emit('friends:respond', { requesterUserId: uid, accept: false });
+      }
+    });
+
+    document.getElementById('btn-banner-visit-friend')?.addEventListener('click', (e) => {
+      const uid = (e.currentTarget as HTMLElement).dataset.uid;
+      this.activeFriendAlert = null;
+      this.renderKnockBanner();
+      if (uid) {
+        this.socket.emit('room:visit', { targetUserId: uid });
+      }
+    });
+
+    document.getElementById('btn-banner-close-friend')?.addEventListener('click', (e) => {
+      const uid = (e.currentTarget as HTMLElement).dataset.uid;
+      if (uid) {
+        this.dismissedIncomingFriendIds.add(uid);
+      }
+      this.activeFriendAlert = null;
+      if (this.friendAlertTimer) {
+        window.clearTimeout(this.friendAlertTimer);
+        this.friendAlertTimer = null;
+      }
+      this.renderKnockBanner();
     });
   }
 
@@ -3099,6 +3436,9 @@ class PocketCornerApp {
     const visitors =
       this.room?.players.filter((p) => p.userId !== this.profile?.id) || [];
 
+    const totalPending = pendingIn.length + pendingOut.length;
+    const friendsList = this.profile.friends || [];
+
     this.mountPopupWindow(`
           <div class="popup-header">
             <div class="popup-title">
@@ -3119,7 +3459,7 @@ class PocketCornerApp {
               🏠 Minha Sala (${visitors.length}/4)
             </button>
             <button class="popup-tab ${this.friendsTab === 'REQUESTS' ? 'active' : ''}" data-friends-tab="REQUESTS">
-              ➕ Adicionar ${pendingIn.length > 0 ? `(${pendingIn.length})` : ''}
+              📨 Amizades Pendentes ${totalPending > 0 ? `(${totalPending})` : ''}
             </button>
           </div>
 
@@ -3177,10 +3517,10 @@ class PocketCornerApp {
                                   ? `<span style="font-size: 0.7rem; color: var(--accent-cyan);">Na sala</span>`
                                     : !isFriend
                                       ? isPendingIn
-                                        ? `<button class="btn btn-sm btn-gold" data-accept-friend="${entry.userId}">Aceitar</button>`
+                                        ? `<button class="btn btn-sm btn-gold" data-accept-friend="${entry.userId}">✓ Aceitar</button>`
                                         : isPendingOut
-                                          ? `<span style="font-size: 0.7rem; color: var(--text-muted);">Pendente</span>`
-                                          : `<button class="btn btn-sm" data-request-friend="@${this.escapeHtml(entry.username)}">+Amigo</button>`
+                                          ? `<button class="btn btn-sm" data-cancel-friend="${entry.userId}" title="Convite enviado — clique para cancelar">⏳ Pendente</button>`
+                                          : `<button class="btn btn-sm" data-request-friend="@${this.escapeHtml(entry.username)}">📨 +Amigo</button>`
                                       : entry.hostStatus === 'DND'
                                         ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${entry.userId}">📫 Presente</button>`
                                         : `<button class="btn btn-sm btn-primary" data-visit-user="${entry.userId}">
@@ -3280,7 +3620,7 @@ class PocketCornerApp {
                       </div>
                     `
                     : `
-                      <!-- Aba Adicionar & Pedidos -->
+                      <!-- Aba Amizades Pendentes & Adicionar -->
                       <div class="item-card" style="background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3);">
                         <div class="item-info">
                           <div class="item-name">Seu ID Único Permanente: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
@@ -3295,39 +3635,119 @@ class PocketCornerApp {
                           id="input-friend-username"
                           class="chat-input-minimal"
                           style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                          placeholder="Digite o @ID único do amigo (ex: @Rick ou @Rick2)..."
+                          placeholder="Digite o @ID ou nome de usuário do amigo (ex: @Rick ou Rick)..."
                         />
-                        <button class="btn btn-primary" id="btn-add-friend">Enviar Pedido</button>
+                        <button class="btn btn-primary" id="btn-add-friend">📨 Enviar Convite</button>
                       </div>
 
-                      ${
-                        pendingIn.length === 0
-                          ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 8px 0;">
-                              Nenhum pedido de amizade pendente.
-                            </div>`
-                          : `<div class="items-grid">
-                              ${pendingIn
-                                .map((reqId) => {
-                                  const dirUser = this.directory.find((d) => d.userId === reqId);
-                                  const label = dirUser
-                                    ? `${dirUser.displayName} (@${dirUser.username})`
-                                    : reqId;
-                                  return `
-                                    <div class="item-card">
-                                      <div class="item-info">
-                                        <div class="item-name">${this.escapeHtml(label)}</div>
-                                        <div class="item-sub">Quer ser seu amigo</div>
-                                      </div>
-                                      <div style="display: flex; gap: 6px;">
-                                        <button class="btn btn-sm btn-primary" data-accept-friend="${reqId}">Aceitar</button>
-                                        <button class="btn btn-sm btn-danger" data-reject-friend="${reqId}">✕</button>
-                                      </div>
-                                    </div>
-                                  `;
-                                })
-                                .join('')}
-                            </div>`
-                      }
+                      <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 4px;">
+                        <!-- 1. Pedidos Recebidos -->
+                        <div>
+                          <div style="font-size: 0.78rem; font-weight: 700; color: var(--accent-gold); margin-bottom: 6px;">
+                            📥 Pedidos Recebidos (${pendingIn.length})
+                          </div>
+                          ${
+                            pendingIn.length === 0
+                              ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
+                                  Nenhum pedido de amizade recebido no momento.
+                                </div>`
+                              : `<div class="items-grid">
+                                  ${pendingIn
+                                    .map((reqId) => {
+                                      const meta = this.resolveFriendMeta(reqId);
+                                      return `
+                                        <div class="item-card" style="border-color: rgba(250, 204, 21, 0.4); background: rgba(250, 204, 21, 0.06);">
+                                          <div class="item-icon">${meta.icon}</div>
+                                          <div class="item-info">
+                                            <div class="item-name">${this.escapeHtml(meta.displayName)}</div>
+                                            <div class="item-sub">@${this.escapeHtml(meta.username)} • 📨 Quer ser seu amigo</div>
+                                          </div>
+                                          <div style="display: flex; gap: 6px;">
+                                            <button class="btn btn-sm btn-primary" data-accept-friend="${this.escapeHtml(reqId)}">✓ Aceitar</button>
+                                            <button class="btn btn-sm btn-danger" data-reject-friend="${this.escapeHtml(reqId)}" title="Recusar pedido">✕</button>
+                                          </div>
+                                        </div>
+                                      `;
+                                    })
+                                    .join('')}
+                                </div>`
+                          }
+                        </div>
+
+                        <!-- 2. Convites Enviados Pendentes -->
+                        <div>
+                          <div style="font-size: 0.78rem; font-weight: 700; color: #93c5fd; margin-bottom: 6px;">
+                            📤 Convites Enviados Pendentes (${pendingOut.length})
+                          </div>
+                          ${
+                            pendingOut.length === 0
+                              ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
+                                  Nenhum convite enviado aguardando aceitação.
+                                </div>`
+                              : `<div class="items-grid">
+                                  ${pendingOut
+                                    .map((targetId) => {
+                                      const meta = this.resolveFriendMeta(targetId);
+                                      return `
+                                        <div class="item-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.06);">
+                                          <div class="item-icon">${meta.icon}</div>
+                                          <div class="item-info">
+                                            <div class="item-name">${this.escapeHtml(meta.displayName)}</div>
+                                            <div class="item-sub">@${this.escapeHtml(meta.username)} • ⏳ Aguardando aceitação</div>
+                                          </div>
+                                          <div style="display: flex; gap: 6px;">
+                                            <button class="btn btn-sm btn-danger" data-cancel-friend="${this.escapeHtml(targetId)}" title="Cancelar convite enviado">✕ Cancelar</button>
+                                          </div>
+                                        </div>
+                                      `;
+                                    })
+                                    .join('')}
+                                </div>`
+                          }
+                        </div>
+
+                        <!-- 3. Meus Amigos Confirmados -->
+                        <div>
+                          <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">
+                            🤝 Meus Amigos (${friendsList.length})
+                          </div>
+                          ${
+                            friendsList.length === 0
+                              ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
+                                  Você ainda não adicionou amigos. Envie um convite pelo @ID acima ou clique em "+Amigo" na aba Salas Online!
+                                </div>`
+                              : `<div class="items-grid">
+                                  ${friendsList
+                                    .map((friendId) => {
+                                      const meta = this.resolveFriendMeta(friendId);
+                                      return `
+                                        <div class="item-card">
+                                          <div class="item-icon">${meta.icon}</div>
+                                          <div class="item-info">
+                                            <div class="item-name">${this.escapeHtml(meta.displayName)}</div>
+                                            <div class="item-sub">
+                                              @${this.escapeHtml(meta.username)} • ${
+                                                meta.isOnline
+                                                  ? '<span style="color: #4ade80;">🟢 Online</span>'
+                                                  : '<span style="color: var(--text-muted);">⚫ Offline</span>'
+                                              }
+                                            </div>
+                                          </div>
+                                          <div style="display: flex; gap: 6px;">
+                                            ${
+                                              meta.isOnline
+                                                ? `<button class="btn btn-sm btn-primary" data-visit-user="${this.escapeHtml(friendId)}">🚀 Visitar</button>`
+                                                : ''
+                                            }
+                                          </div>
+                                        </div>
+                                      `;
+                                    })
+                                    .join('')}
+                                </div>`
+                          }
+                        </div>
+                      </div>
                     `
               }
             </div>
@@ -3374,14 +3794,15 @@ class PocketCornerApp {
         const inp = document.getElementById('input-friend-username') as HTMLInputElement;
         const val = inp?.value.trim();
         if (!val) return;
-        if (!val.startsWith('@') || val.length < 2) {
+        const cleanVal = val.replace(/^@+/, '').trim();
+        if (cleanVal.length < 2) {
           this.showToast(
             'warning',
-            'Digite o ID único começando com @ (exemplo: @Rick ou @Rick2).'
+            'Digite o @ID único do amigo (exemplo: @Rick ou Rick).'
           );
           return;
         }
-        this.socket.emit('friends:add', { usernameOrId: val });
+        this.socket.emit('friends:add', { usernameOrId: `@${cleanVal}` });
         inp.value = '';
       };
 
@@ -3434,6 +3855,13 @@ class PocketCornerApp {
       btn.addEventListener('click', () => {
         const requesterUserId = (btn as HTMLElement).dataset.rejectFriend!;
         this.socket.emit('friends:respond', { requesterUserId, accept: false });
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-cancel-friend]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetUserId = (btn as HTMLElement).dataset.cancelFriend!;
+        this.socket.emit('friends:cancel', { targetUserId });
       });
     });
 

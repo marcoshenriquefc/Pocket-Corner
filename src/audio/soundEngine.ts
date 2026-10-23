@@ -571,7 +571,33 @@ class SoundEngine {
       }, delay);
     });
   }
+
+  /**
+   * 📨 Som de envio de convite de amizade (arpejo leve e positivo de carta enviada)
+   */
+  public playFriendInviteSent() {
+    this.playTone(523.25, 0.12, 'triangle', 0.1, 659.25); // C5 -> E5
+    setTimeout(() => {
+      this.playTone(659.25, 0.14, 'triangle', 0.11); // E5
+    }, 90);
+    setTimeout(() => {
+      this.playTone(987.77, 0.28, 'sine', 0.12); // B5
+    }, 185);
+  }
+
+  /**
+   * 🤝 Som de alerta quando chega um convite de amizade ou quando uma amizade é aceita
+   */
+  public playFriendRequestAlert() {
+    const notes = [587.33, 739.99, 880, 1174.66]; // D5, F#5, A5, D6
+    notes.forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, idx === notes.length - 1 ? 0.36 : 0.14, 'sine', 0.12);
+      }, idx * 85);
+    });
+  }
 }
 
 export const soundEngine = new SoundEngine();
+
 

@@ -18,6 +18,7 @@ import {
   DeskDropInstance,
   DoorPermission,
   EquippedLoadout,
+  FriendProfileSummary,
   HostStatus,
   IdleActivity,
   KnockRequest,
@@ -539,6 +540,29 @@ export class PocketStore {
     return allowedEmails.includes(u.email.trim().toLowerCase());
   }
 
+  private buildFriendProfilesMap(user: UserProfile): Record<string, FriendProfileSummary> {
+    const map: Record<string, FriendProfileSummary> = {};
+    const ids = new Set<string>([
+      ...(user.friends || []),
+      ...(user.pendingIncomingFriends || []),
+      ...(user.pendingOutgoingFriends || []),
+    ]);
+
+    for (const id of ids) {
+      const other = this.db.users[id];
+      if (other) {
+        map[id] = {
+          userId: other.id,
+          username: other.username,
+          displayName: other.displayName,
+          avatarBody: other.equipped?.avatar_body || 'body_human',
+          isOnline: this.onlineUsers.has(other.id),
+        };
+      }
+    }
+    return map;
+  }
+
   public withComputedAdminFlag(user: UserProfile): UserProfile {
     const isAdmin = this.isUserAdmin(user);
     if (isAdmin) {
@@ -554,9 +578,11 @@ export class PocketStore {
         this.saveDB();
       }
     }
+    const friendProfiles = this.buildFriendProfilesMap(user);
     return {
       ...user,
       isAdmin,
+      friendProfiles,
     };
   }
 
@@ -572,6 +598,7 @@ export class PocketStore {
         }
       }
     }
+    u.friendProfiles = this.buildFriendProfilesMap(u);
     return u;
   }
 
@@ -758,6 +785,28 @@ export class PocketStore {
 
     this.saveDB();
     return { ok: true, message: `Pedido de amizade de ${requester.displayName} recusado.` };
+  }
+
+  public cancelFriendshipRequest(
+    userId: string,
+    targetUserId: string
+  ): { ok: boolean; message: string } {
+    const user = this.db.users[userId];
+    const target = this.db.users[targetUserId];
+    if (!user || !target) return { ok: false, message: 'Usuário não encontrado.' };
+
+    user.pendingOutgoingFriends = (user.pendingOutgoingFriends || []).filter(
+      (id) => id !== targetUserId
+    );
+    target.pendingIncomingFriends = (target.pendingIncomingFriends || []).filter(
+      (id) => id !== userId
+    );
+
+    this.saveDB();
+    return {
+      ok: true,
+      message: `Convite enviado para ${target.displayName} (@${target.username}) foi cancelado.`,
+    };
   }
 
   public equipItem(userId: string, itemId: string): { ok: boolean; message: string } {

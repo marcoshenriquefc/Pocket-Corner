@@ -124,6 +124,14 @@ export interface FriendshipEdge {
   direction: 'INCOMING' | 'OUTGOING' | 'MUTUAL';
 }
 
+export interface FriendProfileSummary {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarBody: string;
+  isOnline?: boolean;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -144,6 +152,7 @@ export interface UserProfile {
   friends: string[]; // Array of ACCEPTED friend user_ids
   pendingIncomingFriends?: string[];
   pendingOutgoingFriends?: string[];
+  friendProfiles?: Record<string, FriendProfileSummary>; // Metadados dos amigos e convites pendentes (mesmo offline)
   hostStatus: HostStatus;
   workStatus?: string; // Frase curta de status de trabalho (ex.: "Editando vídeo", "Em reunião até 15h")
   doorPermission: DoorPermission;
@@ -315,6 +324,7 @@ export interface ClientToServerEvents {
   // 6.2. Grafo Social de Amizade (PENDING -> ACCEPTED)
   'friends:add': (payload: { usernameOrId: string }) => void;
   'friends:respond': (payload: { requesterUserId: string; accept: boolean }) => void;
+  'friends:cancel': (payload: { targetUserId: string }) => void;
   'bot:summon_visit': () => void;
 }
 
@@ -323,6 +333,19 @@ export interface ServerToClientEvents {
   'room:state': (snapshot: RoomSnapshot) => void;
   'directory:online': (entries: OnlineDirectoryEntry[]) => void;
   'room:user_joined': (payload: RoomUserJoinedPayload) => void;
+  'friends:invite_alert': (payload: {
+    kind: 'INCOMING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+    fromUserId: string;
+    fromUsername: string;
+    fromDisplayName: string;
+    fromAvatarBody: string;
+    targetUserId: string;
+    targetUsername: string;
+    targetDisplayName: string;
+    targetAvatarBody: string;
+    pendingIncomingCount: number;
+    pendingOutgoingCount: number;
+  }) => void;
 
   'room:player_moved': (payload: { userId: string; targetX: number; facing: 'left' | 'right' }) => void;
   'room:player_jumped': (payload: { userId: string }) => void;

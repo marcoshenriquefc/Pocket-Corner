@@ -1527,4 +1527,149 @@ body.transparent-overlay .ambient-sound-bar {
   border-color: #fde047 !important;
 }
 
+/* ==========================================
+   Aviso na Tela de Convite de Amizade & Atalho "Amizades Pendentes"
+   ========================================== */
+@keyframes friendBannerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pendingPulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(250, 204, 21, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(250, 204, 21, 0.55);
+  }
+}
+
+.friend-invite-banner {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  z-index: 25;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  animation: friendBannerSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.friend-invite-banner.is-incoming {
+  border-color: rgba(250, 204, 21, 0.75);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(66, 32, 6, 0.88));
+  animation: friendBannerSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1), pendingPulseGlow 2.2s infinite;
+}
+
+.friend-invite-banner.is-sent {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(12, 74, 110, 0.85));
+}
+
+.friend-invite-banner.is-accepted {
+  border-color: rgba(74, 222, 128, 0.7);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(6, 78, 59, 0.85));
+}
+
+.friend-invite-banner-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.friend-invite-banner-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 7px;
+  flex-shrink: 0;
+}
+
+.friend-invite-banner-title {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.friend-invite-banner.is-incoming .friend-invite-banner-title {
+  color: #fef08a;
+}
+
+.friend-invite-banner.is-sent .friend-invite-banner-title {
+  color: #bae6fd;
+}
+
+.friend-invite-banner.is-accepted .friend-invite-banner-title {
+  color: #bbf7d0;
+}
+
+.friend-invite-banner-sub {
+  font-size: 0.66rem;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+
+.friend-invite-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pending-friends-shortcut {
+  font-weight: 800;
+  border-radius: var(--radius-pill);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pending-friends-shortcut.has-incoming {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.24), rgba(234, 88, 12, 0.3));
+  border: 1px solid rgba(250, 204, 21, 0.75);
+  color: #fef08a;
+  animation: pendingPulseGlow 2.2s infinite;
+}
+
+.pending-friends-shortcut.has-outgoing {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.25));
+  border: 1px solid rgba(56, 189, 248, 0.6);
+  color: #bae6fd;
+}
+
+.pending-friends-shortcut:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.pending-friends-chip.has-incoming {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.22), rgba(234, 88, 12, 0.28)) !important;
+  border-color: rgba(250, 204, 21, 0.75) !important;
+  color: #fef08a !important;
+  font-weight: 800 !important;
+  animation: pendingPulseGlow 2.2s infinite;
+}
+
+.pending-friends-chip.has-outgoing {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(99, 102, 241, 0.24)) !important;
+  border-color: rgba(56, 189, 248, 0.6) !important;
+  color: #bae6fd !important;
+  font-weight: 700 !important;
+}
+
+
 
