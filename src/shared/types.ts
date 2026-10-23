@@ -102,6 +102,7 @@ export interface PlacedFurnitureItem {
 
 export interface EquippedLoadout {
   avatar_body: string;
+  avatar_body_variant?: string; // Cor / tom escolhido gratuitamente para o Humano Cozy (ex: "peach:indigo")
   avatar_head: string;
   avatar_back: string;
   companion_pet?: string; // ID do Pet equipado (apenas 1 por vez, ou '' para nenhum)
@@ -136,6 +137,7 @@ export interface UserProfile {
   gems: number;
   inventory: string[]; // Array of owned item_ids (verified server-side)
   equipped: EquippedLoadout;
+  humanVariant?: string; // Personalização gratuita de cor do Humano Cozy (ex: "peach:indigo")
   petVariants?: Record<string, string>; // Raça escolhida por petId (ex: { pet_cat: 'siames', pet_dog: 'husky' })
   placedFurniture: PlacedFurnitureItem[]; // Móveis posicionados no cenário do usuário
   friends: string[]; // Array of ACCEPTED friend user_ids
@@ -297,6 +299,7 @@ export interface ClientToServerEvents {
 
   // Economia & Inventário (Server-Side Inventory Verification)
   'inventory:equip': (payload: { itemId: string }) => void;
+  'avatar:set_human_variant': (payload: { variantId: string }) => void;
   'pet:set_variant': (payload: { petId: string; variantId: string }) => void;
   'pet:unequip': () => void;
   'shop:buy': (payload: { itemId: string }) => void;

@@ -1569,6 +1569,21 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     broadcastDirectory();
   });
 
+  socket.on('avatar:set_human_variant', ({ variantId }) => {
+    const res = store.setHumanVariant(userId, variantId);
+    const updated = store.getUserById(userId);
+    if (updated) socket.emit('auth:profile', updated);
+    socket.emit('system:toast', {
+      type: res.ok ? 'success' : 'error',
+      message: res.message,
+    });
+
+    const hostId = store.userCurrentRoom.get(userId) || userId;
+    broadcastRoomState(hostId);
+    if (hostId !== userId) broadcastRoomState(userId);
+    broadcastDirectory();
+  });
+
   socket.on('pet:set_variant', ({ petId, variantId }) => {
     const res = store.setPetVariant(userId, petId, variantId);
     const updated = store.getUserById(userId);

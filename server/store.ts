@@ -10,6 +10,7 @@ import {
   getCosmeticById,
   getPetBreedOption,
   getRealMoneyPackageById,
+  parseHumanVariant,
 } from '../src/shared/catalog';
 import {
   CosmeticItem,
@@ -616,6 +617,10 @@ export class PocketStore {
       safeEquipped.companion_pet_variant = '';
     }
 
+    safeEquipped.avatar_body_variant = parseHumanVariant(
+      user.humanVariant || user.equipped.avatar_body_variant
+    ).variantId;
+
     this.sessionCosmeticsCache.set(userId, safeEquipped);
     return safeEquipped;
   }
@@ -854,6 +859,36 @@ export class PocketStore {
     return {
       ok: true,
       message: `${cosmetic.icon} Raça "${chosenBreed.name}" selecionada para ${cosmetic.name}!`,
+    };
+  }
+
+  public setHumanVariant(
+    userId: string,
+    variantId: string
+  ): { ok: boolean; message: string } {
+    const user = this.db.users[userId];
+    if (!user) return { ok: false, message: 'Usuário não encontrado.' };
+
+    const parsed = parseHumanVariant(variantId);
+    user.humanVariant = parsed.variantId;
+    user.equipped.avatar_body = 'body_human';
+    user.equipped.avatar_body_variant = parsed.variantId;
+
+    this.saveDB();
+    const updatedLoadout = this.loadSessionCosmetics(userId);
+
+    const currentRoomHostId = this.userCurrentRoom.get(userId);
+    if (currentRoomHostId) {
+      const room = this.rooms.get(currentRoomHostId);
+      const playerState = room?.players.get(userId);
+      if (playerState) {
+        playerState.equipped = updatedLoadout;
+      }
+    }
+
+    return {
+      ok: true,
+      message: `🧑 Humano Cozy atualizado: Pele ${parsed.skin.name} • Roupa ${parsed.hoodie.name}!`,
     };
   }
 

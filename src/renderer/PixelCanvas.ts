@@ -1,4 +1,9 @@
-import { getCosmeticById, getFurnitureColorOption, getPetBreedOption } from '../shared/catalog';
+import {
+  getCosmeticById,
+  getFurnitureColorOption,
+  getPetBreedOption,
+  parseHumanVariant,
+} from '../shared/catalog';
 import {
   DeskDropInstance,
   IdleActivity,
@@ -4238,21 +4243,29 @@ export class PixelCanvasRenderer {
 
       ctx.restore();
     } else {
-      // Default: Humano Cozy
-      ctx.fillStyle = '#fed7aa';
+      // Default: Humano Cozy (Com Tom de Pele + Cor do Moletom personalizáveis gratuitamente!)
+      const humanStyle = parseHumanVariant(p.equipped.avatar_body_variant);
+      ctx.fillStyle = humanStyle.skin.skinColor;
       ctx.fillRect(-7, baseTop + 2, 14, 11);
-      ctx.fillStyle = '#312e81';
+      ctx.fillStyle = humanStyle.skin.hairColor;
       ctx.fillRect(-8, baseTop, 16, 5);
-      ctx.fillStyle = '#0f172a';
       if (p.hostStatus === 'IDLE' && p.idleActivity === 'SLEEPING') {
+        ctx.fillStyle = humanStyle.skin.id === 'ebony' || humanStyle.skin.id === 'brown' ? '#e2e8f0' : '#0f172a';
         ctx.fillRect(dir * 2 - 4, baseTop + 8, 3, 1);
         ctx.fillRect(dir * 2 + 2, baseTop + 8, 3, 1);
       } else {
+        ctx.fillStyle = '#0f172a';
         ctx.fillRect(dir * 2 - 3, baseTop + 7, 2, 3);
         ctx.fillRect(dir * 2 + 3, baseTop + 7, 2, 3);
+        // Brilho nos olhos para destacar em todos os tons de pele
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(dir * 2 - 3, baseTop + 7, 1, 1);
+        ctx.fillRect(dir * 2 + 3, baseTop + 7, 1, 1);
       }
-      ctx.fillStyle = p.isHost ? '#6366f1' : '#10b981';
+      ctx.fillStyle = humanStyle.hoodie.primaryColor;
       ctx.fillRect(-8, baseTop + 13, 16, 11);
+      ctx.fillStyle = humanStyle.hoodie.secondaryColor;
+      ctx.fillRect(-5, baseTop + 19, 10, 4);
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(-6, -4, 4, 4);
       ctx.fillRect(2, -4, 4, 4);
@@ -4940,6 +4953,7 @@ export class PixelCanvasRenderer {
     username: string;
     displayName: string;
     equipped: RoomPlayerState['equipped'];
+    humanVariant?: string;
     petVariants?: Record<string, string>;
   }) {
     if (!this.previewCanvas) return;
@@ -4967,6 +4981,7 @@ export class PixelCanvasRenderer {
       idleActivity: 'COFFEE',
       equipped: {
         ...profile.equipped,
+        avatar_body_variant: profile.humanVariant || profile.equipped.avatar_body_variant,
         companion_pet_variant: petId
           ? profile.petVariants?.[petId] || profile.equipped.companion_pet_variant
           : undefined,

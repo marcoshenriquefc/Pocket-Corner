@@ -4,10 +4,13 @@ import {
   COSMETIC_CATALOG,
   FURNITURE_COLOR_PALETTE,
   GACHAPON_COST_COINS,
+  HUMAN_HOODIE_COLORS,
+  HUMAN_SKIN_TONES,
   PET_BREED_OPTIONS,
   REAL_MONEY_PACKAGES,
   getCosmeticById,
   getPetBreedOption,
+  parseHumanVariant,
 } from './shared/catalog';
 import {
   ClientToServerEvents,
@@ -3773,6 +3776,84 @@ class PocketCornerApp {
       `;
     }
 
+    if (item.id === 'body_human') {
+      const currentHuman = parseHumanVariant(
+        this.profile!.humanVariant || this.profile!.equipped.avatar_body_variant
+      );
+
+      return `
+        <div
+          class="item-card pet-item-card ${isEquipped ? 'equipped' : ''}"
+          title="${this.escapeHtml(item.description)}"
+          style="flex-direction: column; align-items: stretch; gap: 8px;"
+        >
+          <div style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+              <div class="item-icon" style="font-size: 1.45rem;">${item.icon}</div>
+              <div class="item-info">
+                <div class="item-name">
+                  ${this.escapeHtml(item.name)}
+                  <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
+                  <span class="rarity-badge" style="background: rgba(34, 197, 94, 0.16); color: #4ade80;">🎨 Cor Grátis</span>
+                  ${adminPriceTag}
+                </div>
+                <div class="item-sub">
+                  🎨 Personalize gratuitamente o tom de pele e a cor do moletom!
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              ${
+                isEquipped
+                  ? `<span class="btn btn-sm active-toggle">Em uso</span>`
+                  : `<button class="btn btn-sm btn-primary" data-equip-item="${item.id}">Usar</button>`
+              }
+            </div>
+          </div>
+
+          <div class="pet-breed-selector-row">
+            <span class="pet-breed-label">🧑 Pele (Grátis):</span>
+            <div class="pet-breed-chips">
+              ${HUMAN_SKIN_TONES.map((skin) => {
+                const selected = currentHuman.skin.id === skin.id;
+                const nextVariant = `${skin.id}:${currentHuman.hoodie.id}`;
+                return `
+                  <button
+                    class="pet-breed-chip ${selected ? 'active' : ''}"
+                    data-human-variant="${nextVariant}"
+                  >
+                    <span class="pet-breed-dot" style="background: ${skin.skinColor}; border-color: ${skin.hairColor};"></span>
+                    <span>${this.escapeHtml(skin.name)}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="pet-breed-selector-row">
+            <span class="pet-breed-label">👕 Roupa (Grátis):</span>
+            <div class="pet-breed-chips">
+              ${HUMAN_HOODIE_COLORS.map((hoodie) => {
+                const selected = currentHuman.hoodie.id === hoodie.id;
+                const nextVariant = `${currentHuman.skin.id}:${hoodie.id}`;
+                return `
+                  <button
+                    class="pet-breed-chip ${selected ? 'active' : ''}"
+                    data-human-variant="${nextVariant}"
+                  >
+                    <span class="pet-breed-dot" style="background: ${hoodie.primaryColor}; border-color: ${hoodie.secondaryColor};"></span>
+                    <span>${this.escapeHtml(hoodie.name)}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
+        </div>
+      `;
+    }
+
     return `
       <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
         <div class="item-icon">${item.icon}</div>
@@ -3935,6 +4016,28 @@ class PocketCornerApp {
       btn.addEventListener('click', () => {
         const itemId = (btn as HTMLElement).dataset.equipItem!;
         this.socket.emit('inventory:equip', { itemId });
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-human-variant]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const variantId = (btn as HTMLElement).dataset.humanVariant!;
+        if (this.profile) {
+          this.profile.humanVariant = variantId;
+          this.profile.equipped.avatar_body = 'body_human';
+          this.profile.equipped.avatar_body_variant = variantId;
+          const meInRoom = this.room?.players.find((p) => p.userId === this.profile?.id);
+          if (meInRoom) {
+            meInRoom.equipped.avatar_body = 'body_human';
+            meInRoom.equipped.avatar_body_variant = variantId;
+          }
+          if (this.activeModal === 'SHOP') {
+            this.renderShopPopup();
+          } else if (this.activeModal === 'BACKPACK') {
+            this.renderBackpackPopup();
+          }
+        }
+        this.socket.emit('avatar:set_human_variant', { variantId });
       });
     });
 

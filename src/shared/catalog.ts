@@ -50,7 +50,8 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     price: 0,
     inGachapon: false,
     isStarter: true,
-    description: 'Moletom confortável pronto para programar e tomar café.',
+    description:
+      'Moletom confortável pronto para programar e tomar café. Personalize gratuitamente o tom de pele e a cor da roupa!',
     icon: '🧑',
     previewColor: '#6366f1',
   },
@@ -1255,4 +1256,68 @@ export function getPetBreedOption(petId: string, variantId?: string): PetBreedOp
   }
   return breeds[0];
 }
+
+// ==========================================
+// 12. PERSONALIZAÇÃO GRATUITA DO HUMANO COZY (TOM DE PELE + COR DA ROUPA)
+// ==========================================
+export interface HumanSkinToneOption {
+  id: string;
+  name: string;
+  skinColor: string;
+  hairColor: string;
+}
+
+export interface HumanHoodieColorOption {
+  id: string;
+  name: string;
+  primaryColor: string;
+  secondaryColor: string;
+}
+
+export const HUMAN_SKIN_TONES: HumanSkinToneOption[] = [
+  { id: 'peach', name: 'Pêssego', skinColor: '#fed7aa', hairColor: '#312e81' },
+  { id: 'fair', name: 'Clara', skinColor: '#ffedd5', hairColor: '#92400e' },
+  { id: 'warm', name: 'Trigo', skinColor: '#f1c27d', hairColor: '#27170c' },
+  { id: 'tan', name: 'Canela', skinColor: '#c68642', hairColor: '#1c1917' },
+  { id: 'brown', name: 'Cacau', skinColor: '#8d5524', hairColor: '#0f172a' },
+  { id: 'ebony', name: 'Ébano', skinColor: '#4a2c18', hairColor: '#090d16' },
+];
+
+export const HUMAN_HOODIE_COLORS: HumanHoodieColorOption[] = [
+  { id: 'indigo', name: 'Índigo', primaryColor: '#6366f1', secondaryColor: '#4338ca' },
+  { id: 'emerald', name: 'Menta', primaryColor: '#10b981', secondaryColor: '#047857' },
+  { id: 'crimson', name: 'Rubi', primaryColor: '#ef4444', secondaryColor: '#b91c1c' },
+  { id: 'ocean', name: 'Oceano', primaryColor: '#0ea5e9', secondaryColor: '#0369a1' },
+  { id: 'amber', name: 'Mostarda', primaryColor: '#f59e0b', secondaryColor: '#b45309' },
+  { id: 'purple', name: 'Lavanda', primaryColor: '#8b5cf6', secondaryColor: '#6d28d9' },
+  { id: 'pink', name: 'Sakura', primaryColor: '#ec4899', secondaryColor: '#be185d' },
+  { id: 'dark', name: 'Ônix', primaryColor: '#1e293b', secondaryColor: '#0f172a' },
+];
+
+export function parseHumanVariant(variantStr?: string): {
+  skin: HumanSkinToneOption;
+  hoodie: HumanHoodieColorOption;
+  variantId: string;
+} {
+  const parts = (variantStr || '').split(':').map((s) => s.trim());
+  const firstPart = parts[0] || '';
+  const secondPart = parts[1] || '';
+
+  const foundSkin =
+    HUMAN_SKIN_TONES.find((s) => s.id === firstPart) ||
+    HUMAN_SKIN_TONES.find((s) => s.id === secondPart) ||
+    HUMAN_SKIN_TONES[0];
+
+  const foundHoodie =
+    HUMAN_HOODIE_COLORS.find((h) => h.id === secondPart) ||
+    HUMAN_HOODIE_COLORS.find((h) => h.id === firstPart) ||
+    HUMAN_HOODIE_COLORS[0];
+
+  return {
+    skin: foundSkin,
+    hoodie: foundHoodie,
+    variantId: `${foundSkin.id}:${foundHoodie.id}`,
+  };
+}
+
 
