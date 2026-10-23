@@ -753,17 +753,39 @@ export class PixelCanvasRenderer {
         }
       }
 
-      // Check Window hit-testing (for rooms with a dynamic day/night window)
+      // Check Window / Sky / Horizon hit-testing across ALL scenarios (adaptive day/night & weather)
       if (!this.hoveredFurnitureId && !this.hoveredWorkSign && !this.editFurnitureMode) {
         const skinId = this.room.roomSkinId || 'room_cozy_desk';
         const isCozyWin =
           skinId === 'room_cozy_desk' && x >= 26 && x <= 106 && y >= 20 && y <= 104;
         const isOfficeWin =
           skinId === 'room_office' && x >= 18 && x <= 132 && y >= 18 && y <= 104;
-        if (isCozyWin || isOfficeWin) {
+        const isTrainWin =
+          skinId === 'room_moving_train' &&
+          y >= 24 &&
+          y <= 114 &&
+          ((x >= 20 && x <= 114) || (x >= 132 && x <= 226) || (x >= 244 && x <= 338));
+        const isOutdoorSky =
+          (skinId === 'room_dense_forest' ||
+            skinId === 'room_forest_campfire' ||
+            skinId === 'room_rainy_rooftop' ||
+            skinId === 'room_beco_rapariga' ||
+            skinId === 'room_underwater') &&
+          y >= 2 &&
+          y <= 44;
+
+        if (isCozyWin || isOfficeWin || isTrainWin || isOutdoorSky) {
           this.hoveredWindow = true;
           const dayInfo = getLocalDayTimeInfo();
-          label = `${dayInfo.icon} Janela (${dayInfo.timeStr} • ${dayInfo.label}) — Clique para olhar a vista`;
+          const weatherTags: string[] = [];
+          if (soundEngine.isAmbientActive('rain')) weatherTags.push('🌧️ Chuva');
+          if (soundEngine.isAmbientActive('fireplace')) weatherTags.push('🔥 Lareira');
+          if (soundEngine.isAmbientActive('brown_noise')) weatherTags.push('🍃 Brisa');
+          if (soundEngine.isAmbientActive('coffee')) weatherTags.push('☕ Aroma de Café');
+          const weatherSuffix = weatherTags.length > 0 ? ` • ${weatherTags.join(' + ')}` : '';
+          const viewName =
+            isCozyWin || isOfficeWin || isTrainWin ? 'Janela' : 'Clima do Cenário';
+          label = `${dayInfo.icon} ${viewName} (${dayInfo.timeStr} • ${dayInfo.label}${weatherSuffix}) — Clique para admirar`;
         }
       }
 
@@ -1040,6 +1062,11 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = pt.color;
       ctx.fillRect(Math.round(pt.x), Math.round(pt.y), pt.size, pt.size);
       ctx.restore();
+    }
+
+    // Camada de Clima e Atmosfera Adaptativa em TODO o cenário (não apenas na janela!)
+    if (!windowBridge.isTransparentOverlay) {
+      this.drawAdaptiveScenarioWeatherForeground(ctx, skinId, W, H, floorY);
     }
 
     ctx.restore();
@@ -1856,41 +1883,88 @@ export class PixelCanvasRenderer {
     floorY: number
   ) {
     const dayInfo = getLocalDayTimeInfo();
+    const isRainActive = soundEngine.isAmbientActive('rain');
+    const isFireActive = soundEngine.isAmbientActive('fireplace');
 
     if (skinId === 'room_dense_forest') {
-      // 🌲 Floresta Densa Encantada
+      // 🌲 Floresta Densa Encantada (Clima e Horário Adaptativos: Dia Ensolarado, Amanhecer/Pôr do Sol, Noite Bioluminescente e Chuva)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#022c22');
-      grad.addColorStop(0.6, '#064e3b');
-      grad.addColorStop(1, '#14532d');
+      if (isRainActive) {
+        grad.addColorStop(0, '#0f172a');
+        grad.addColorStop(0.55, '#064e3b');
+        grad.addColorStop(1, '#115e59');
+      } else if (dayInfo.phase === 'DAY') {
+        grad.addColorStop(0, '#047857');
+        grad.addColorStop(0.55, '#065f46');
+        grad.addColorStop(1, '#14532d');
+      } else if (dayInfo.phase === 'DAWN') {
+        grad.addColorStop(0, '#3b0764');
+        grad.addColorStop(0.45, '#701a75');
+        grad.addColorStop(1, '#064e3b');
+      } else if (dayInfo.phase === 'SUNSET') {
+        grad.addColorStop(0, '#7c2d12');
+        grad.addColorStop(0.5, '#9a3412');
+        grad.addColorStop(1, '#14532d');
+      } else {
+        grad.addColorStop(0, '#022c22');
+        grad.addColorStop(0.6, '#064e3b');
+        grad.addColorStop(1, '#14532d');
+      }
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
+      // Raios de sol / crepúsculo atravessando a copa das árvores durante o Dia, Amanhecer ou Pôr do Sol (quando não chove)
+      if (!isRainActive && dayInfo.phase !== 'NIGHT') {
+        ctx.save();
+        ctx.fillStyle =
+          dayInfo.phase === 'DAY'
+            ? 'rgba(254, 240, 138, 0.14)'
+            : dayInfo.phase === 'SUNSET'
+              ? 'rgba(251, 146, 60, 0.18)'
+              : 'rgba(244, 114, 182, 0.14)';
+        for (let rx = 24; rx < W; rx += 105) {
+          ctx.beginPath();
+          ctx.moveTo(rx, 18);
+          ctx.lineTo(rx + 28, 18);
+          ctx.lineTo(rx + 74, floorY);
+          ctx.lineTo(rx + 32, floorY);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
       // Back layer giant tree trunks
-      ctx.fillStyle = '#052e16';
+      ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#064e3b' : '#052e16';
       for (let tx = 8; tx < W; tx += 52) {
         ctx.fillRect(tx, 0, 18, floorY);
       }
 
       // Foreground giant oak trunks with bark texture
       for (let tx = 30; tx < W; tx += 78) {
-        ctx.fillStyle = '#3f2305';
+        ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#522f0a' : '#3f2305';
         ctx.fillRect(tx, 0, 24, floorY);
         ctx.fillStyle = '#291502';
         ctx.fillRect(tx + 16, 0, 8, floorY);
       }
 
       // Dense leaf canopy along top ceiling
-      ctx.fillStyle = '#065f46';
+      ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#047857' : '#065f46';
       ctx.fillRect(0, 0, W, 28);
       for (let lx = 0; lx < W; lx += 28) {
-        ctx.fillStyle = lx % 56 === 0 ? '#047857' : '#15803d';
+        ctx.fillStyle =
+          lx % 56 === 0
+            ? dayInfo.phase === 'SUNSET'
+              ? '#15803d'
+              : '#047857'
+            : '#15803d';
         ctx.fillRect(lx, 16, 30, 18);
       }
 
       // Hanging vines swaying gently
+      const windBoost = soundEngine.isAmbientActive('brown_noise') || isRainActive ? 3.5 : 2;
       for (let vx = 22; vx < W; vx += 46) {
-        const sway = Math.round(Math.sin(this.tick * 0.05 + vx) * 2);
+        const sway = Math.round(Math.sin(this.tick * 0.05 + vx) * windBoost);
         const vineLen = 28 + (vx % 26);
         ctx.fillStyle = '#22c55e';
         ctx.fillRect(vx + sway, 24, 2, vineLen);
@@ -1898,9 +1972,14 @@ export class PixelCanvasRenderer {
         ctx.fillRect(vx + sway - 2, 24 + vineLen - 4, 5, 4);
       }
 
-      // Glowing bioluminescent mushrooms near forest floor
+      // Glowing bioluminescent mushrooms near forest floor (brilham mais forte à noite e na chuva!)
       const mushPositions = [48, 128, 224, 312];
       mushPositions.forEach((mx, idx) => {
+        if (dayInfo.phase === 'NIGHT' || isRainActive) {
+          ctx.fillStyle =
+            idx % 2 === 0 ? 'rgba(56, 189, 248, 0.22)' : 'rgba(244, 114, 182, 0.22)';
+          ctx.fillRect(mx - 8, floorY - 15, 17, 14);
+        }
         ctx.fillStyle = '#fde68a';
         ctx.fillRect(mx - 1, floorY - 7, 3, 7);
         ctx.fillStyle = idx % 2 === 0 ? '#38bdf8' : '#f472b6';
@@ -1910,18 +1989,26 @@ export class PixelCanvasRenderer {
         ctx.fillRect(mx + 2, floorY - 9, 2, 2);
       });
 
-      // Floating fireflies
+      // Vaga-lumes à noite/crepúsculo OU pólen/borboletas douradas durante o dia
       for (let i = 0; i < 18; i++) {
         const fx = (i * 47 + Math.round(Math.sin(this.tick * 0.03 + i) * 8)) % W;
         const fy = 32 + ((i * 29 + Math.round(Math.cos(this.tick * 0.04 + i) * 6)) % (floorY - 46));
-        ctx.fillStyle = '#fde047';
+        ctx.fillStyle =
+          dayInfo.phase === 'DAY'
+            ? i % 3 === 0
+              ? '#f472b6'
+              : '#fef08a'
+            : '#fde047';
         const s = Math.sin(this.tick * 0.1 + i) > 0 ? 2 : 1;
         ctx.fillRect(fx, fy, s, s);
       }
     } else if (skinId === 'room_office') {
-      // 🏢 Escritório Executivo Moderno (Com Ciclo Dia / Pôr do Sol / Noite no Janelão e Relógio Real)
+      // 🏢 Escritório Executivo Moderno (Com Ciclo Dia / Pôr do Sol / Noite + Clima Adaptativo e Relógio Real)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        grad.addColorStop(0, '#1e293b');
+        grad.addColorStop(1, '#334155');
+      } else if (dayInfo.phase === 'DAY') {
         grad.addColorStop(0, '#26354d');
         grad.addColorStop(1, '#3b4f6b');
       } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
@@ -1936,7 +2023,11 @@ export class PixelCanvasRenderer {
 
       // Panoramic Corporate Window with Dynamic Skyline (Left: x=20..130, y=20..102)
       const winSkyGrad = ctx.createLinearGradient(0, 20, 0, 102);
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        winSkyGrad.addColorStop(0, '#1e293b');
+        winSkyGrad.addColorStop(0.6, '#334155');
+        winSkyGrad.addColorStop(1, '#475569');
+      } else if (dayInfo.phase === 'DAY') {
         winSkyGrad.addColorStop(0, '#38bdf8');
         winSkyGrad.addColorStop(1, '#bae6fd');
       } else if (dayInfo.phase === 'DAWN') {
@@ -1954,26 +2045,34 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = winSkyGrad;
       ctx.fillRect(20, 20, 110, 82);
 
-      // Sun or Moon in Office Window
-      if (dayInfo.phase === 'DAY') {
-        ctx.fillStyle = '#fef08a';
-        ctx.fillRect(104, 28, 12, 12);
-      } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
-        ctx.fillStyle = '#fb923c';
-        ctx.fillRect(98, 52, 16, 14);
-        ctx.fillStyle = '#fde047';
-        ctx.fillRect(101, 55, 10, 8);
+      // Sun or Moon in Office Window (hidden behind clouds when raining heavily)
+      if (!isRainActive) {
+        if (dayInfo.phase === 'DAY') {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(104, 28, 12, 12);
+        } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+          ctx.fillStyle = '#fb923c';
+          ctx.fillRect(98, 52, 16, 14);
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(101, 55, 10, 8);
+        } else {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(106, 28, 10, 10);
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillRect(36, 30, 2, 2);
+          ctx.fillRect(74, 27, 2, 2);
+        }
       } else {
-        ctx.fillStyle = '#fef08a';
-        ctx.fillRect(106, 28, 10, 10);
-        ctx.fillStyle = '#e2e8f0';
-        ctx.fillRect(36, 30, 2, 2);
-        ctx.fillRect(74, 27, 2, 2);
+        // Nuvens carregadas de chuva no topo do janelão
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(24, 22, 46, 8);
+        ctx.fillRect(76, 24, 48, 8);
       }
 
       // City skyline silhouette
-      const bldgColor =
-        dayInfo.phase === 'DAY'
+      const bldgColor = isRainActive
+        ? '#1e293b'
+        : dayInfo.phase === 'DAY'
           ? '#0284c7'
           : dayInfo.phase === 'NIGHT'
             ? '#0f172a'
@@ -1983,8 +2082,8 @@ export class PixelCanvasRenderer {
       ctx.fillRect(54, 34, 28, 68);
       ctx.fillRect(88, 52, 32, 50);
 
-      // Lit building windows at Sunset/Night
-      if (dayInfo.phase === 'NIGHT' || dayInfo.phase === 'SUNSET') {
+      // Lit building windows at Sunset/Night or during Rainy Overcast weather
+      if (dayInfo.phase === 'NIGHT' || dayInfo.phase === 'SUNSET' || isRainActive) {
         ctx.fillStyle = '#fde047';
         for (let wy = 40; wy < 96; wy += 10) {
           ctx.fillRect(58, wy, 4, 4);
@@ -1997,19 +2096,25 @@ export class PixelCanvasRenderer {
         }
       }
 
+      // Rain streaks & droplets inside Office Window when raining
+      if (isRainActive) {
+        this.drawWindowRainAndDroplets(ctx, 20, 20, 110, 82);
+      }
+
       // Horizontal office blinds
       ctx.fillStyle = 'rgba(241, 245, 249, 0.45)';
       for (let by = 24; by < 52; by += 6) {
         ctx.fillRect(22, by, 106, 2);
       }
-      ctx.strokeStyle = '#0f172a';
+      ctx.strokeStyle = this.hoveredWindow ? '#facc15' : '#0f172a';
       ctx.lineWidth = 3;
       ctx.strokeRect(20, 20, 110, 82);
 
       // Diagonal Window Light Beam onto office floor
       ctx.save();
-      ctx.fillStyle =
-        dayInfo.phase === 'DAY'
+      ctx.fillStyle = isRainActive
+        ? 'rgba(125, 211, 252, 0.08)'
+        : dayInfo.phase === 'DAY'
           ? 'rgba(186, 230, 253, 0.10)'
           : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
             ? 'rgba(251, 146, 60, 0.13)'
@@ -2064,17 +2169,33 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#0284c7';
       ctx.fillRect(330, floorY - 24, 3, 4);
     } else if (skinId === 'room_underwater') {
-      // 🌊 Fundo do Mar (Recife de Corais)
+      // 🌊 Fundo do Mar / Recife de Corais (Adaptativo: Mar Turquesa Solar de Dia, Reflexos Dourados no Pôr do Sol e Mar Bioluminescente à Noite)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#082f49');
-      grad.addColorStop(0.55, '#0369a1');
-      grad.addColorStop(1, '#0284c7');
+      if (dayInfo.phase === 'DAY') {
+        grad.addColorStop(0, isRainActive ? '#0c4a6e' : '#0284c7');
+        grad.addColorStop(0.55, '#0369a1');
+        grad.addColorStop(1, '#075985');
+      } else if (dayInfo.phase === 'DAWN' || dayInfo.phase === 'SUNSET') {
+        grad.addColorStop(0, '#4c1d95');
+        grad.addColorStop(0.45, '#0369a1');
+        grad.addColorStop(1, '#082f49');
+      } else {
+        // Noite Abissal Bioluminescente
+        grad.addColorStop(0, '#020617');
+        grad.addColorStop(0.55, '#082f49');
+        grad.addColorStop(1, '#0c4a6e');
+      }
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Diagonal sunbeams piercing through water
+      // Feixes de luz atravessando a água (solares de dia, dourados/rosados no pôr do sol, luar sutil à noite)
       ctx.save();
-      ctx.fillStyle = 'rgba(186, 230, 253, 0.12)';
+      ctx.fillStyle =
+        dayInfo.phase === 'DAY'
+          ? 'rgba(186, 230, 253, 0.14)'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? 'rgba(251, 146, 60, 0.14)'
+            : 'rgba(56, 189, 248, 0.06)';
       for (let rx = 20; rx < W; rx += 95) {
         ctx.beginPath();
         ctx.moveTo(rx, 0);
@@ -2086,11 +2207,23 @@ export class PixelCanvasRenderer {
       }
       ctx.restore();
 
+      // Plâncton bioluminescente brilhando à noite
+      if (dayInfo.phase === 'NIGHT') {
+        for (let p = 0; p < 16; p++) {
+          const px = (p * 43 + Math.round(Math.sin(this.tick * 0.04 + p) * 6)) % W;
+          const py = 18 + ((p * 27 + Math.round(Math.cos(this.tick * 0.03 + p) * 5)) % (floorY - 36));
+          ctx.fillStyle = p % 2 === 0 ? '#22d3ee' : '#f472b6';
+          const sz = Math.sin(this.tick * 0.08 + p) > 0 ? 2 : 1;
+          ctx.fillRect(px, py, sz, sz);
+        }
+      }
+
       // Background swimming fish silhouettes
       for (let i = 0; i < 4; i++) {
         const fx = ((this.tick * (i % 2 === 0 ? 1 : -1) + i * 95) % W + W) % W;
         const fy = 28 + i * 22;
-        ctx.fillStyle = 'rgba(12, 74, 110, 0.65)';
+        ctx.fillStyle =
+          dayInfo.phase === 'NIGHT' ? 'rgba(34, 211, 238, 0.45)' : 'rgba(12, 74, 110, 0.65)';
         ctx.fillRect(fx, fy, 10, 5);
         ctx.fillRect(fx - 3, fy + 1, 3, 3);
       }
@@ -2110,32 +2243,78 @@ export class PixelCanvasRenderer {
       // Rising water bubbles
       ctx.strokeStyle = 'rgba(224, 242, 254, 0.7)';
       ctx.lineWidth = 1;
-      for (let b = 0; b < 14; b++) {
+      const bubbleCount = isRainActive ? 22 : 14;
+      for (let b = 0; b < bubbleCount; b++) {
         const bx = (b * 29 + Math.round(Math.sin(this.tick * 0.05 + b) * 4)) % W;
         const by = floorY - ((this.tick + b * 19) % floorY);
         ctx.strokeRect(bx, by, 4, 4);
       }
     } else if (skinId === 'room_rainy_rooftop') {
-      // Rainy Rooftop Lofi
+      // 🌆 Terraço Urbano Lofi (Adaptativo: Céu Diurno, Amanhecer, Pôr do Sol Laranja e Noite Neon + Chuva Adaptativa)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#090d16');
-      grad.addColorStop(1, '#1e293b');
+      if (isRainActive) {
+        grad.addColorStop(0, '#090d16');
+        grad.addColorStop(1, '#1e293b');
+      } else if (dayInfo.phase === 'DAY') {
+        grad.addColorStop(0, '#0284c7');
+        grad.addColorStop(0.65, '#38bdf8');
+        grad.addColorStop(1, '#bae6fd');
+      } else if (dayInfo.phase === 'DAWN') {
+        grad.addColorStop(0, '#4c1d95');
+        grad.addColorStop(0.55, '#ec4899');
+        grad.addColorStop(1, '#fde047');
+      } else if (dayInfo.phase === 'SUNSET') {
+        grad.addColorStop(0, '#431407');
+        grad.addColorStop(0.45, '#c2410c');
+        grad.addColorStop(0.8, '#fb923c');
+        grad.addColorStop(1, '#fde047');
+      } else {
+        grad.addColorStop(0, '#090d16');
+        grad.addColorStop(1, '#1e293b');
+      }
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
+      // Sol, Lua ou Nuvens no horizonte do Terraço Urbano
+      if (!isRainActive) {
+        if (dayInfo.phase === 'DAY') {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(290, 18, 16, 16);
+          const cx = ((this.tick * 0.15) % (W + 60)) - 30;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillRect(Math.round(cx), 22, 34, 6);
+          ctx.fillRect(Math.round(cx) + 6, 18, 20, 4);
+        } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+          ctx.fillStyle = 'rgba(251, 146, 60, 0.35)';
+          ctx.fillRect(196, 30, 28, 28);
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(201, 35, 18, 18);
+        } else {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(292, 16, 12, 12);
+          ctx.fillStyle = '#090d16';
+          ctx.fillRect(297, 14, 10, 10);
+        }
+      }
+
       const buildings = [
-        { x: 10, w: 38, h: 90, c: '#0f172a' },
-        { x: 52, w: 46, h: 115, c: '#111827' },
-        { x: 105, w: 34, h: 78, c: '#0f172a' },
-        { x: 148, w: 54, h: 122, c: '#131c31' },
-        { x: 210, w: 42, h: 96, c: '#0f172a' },
-        { x: 260, w: 50, h: 110, c: '#111827' },
-        { x: 315, w: 40, h: 85, c: '#0f172a' },
+        { x: 10, w: 38, h: 90, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e3a5f' : '#0f172a' },
+        { x: 52, w: 46, h: 115, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e293b' : '#111827' },
+        { x: 105, w: 34, h: 78, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e3a5f' : '#0f172a' },
+        { x: 148, w: 54, h: 122, c: dayInfo.phase === 'DAY' && !isRainActive ? '#172554' : '#131c31' },
+        { x: 210, w: 42, h: 96, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e3a5f' : '#0f172a' },
+        { x: 260, w: 50, h: 110, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e293b' : '#111827' },
+        { x: 315, w: 40, h: 85, c: dayInfo.phase === 'DAY' && !isRainActive ? '#1e3a5f' : '#0f172a' },
       ];
       buildings.forEach((b, idx) => {
         ctx.fillStyle = b.c;
         ctx.fillRect(b.x, floorY - b.h, b.w, b.h);
-        ctx.fillStyle = idx % 2 === 0 ? '#38bdf8' : '#f472b6';
+        ctx.fillStyle =
+          dayInfo.phase === 'DAY' && !isRainActive
+            ? 'rgba(186, 230, 253, 0.55)'
+            : idx % 2 === 0
+              ? '#38bdf8'
+              : '#f472b6';
         for (let wy = floorY - b.h + 10; wy < floorY - 14; wy += 14) {
           for (let wx = b.x + 6; wx < b.x + b.w - 8; wx += 10) {
             if ((wx + wy + idx) % 3 !== 0) {
@@ -2145,67 +2324,158 @@ export class PixelCanvasRenderer {
         }
       });
 
-      ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
-      for (let i = 0; i < 36; i++) {
-        const rx = (i * 37 + this.tick * 2) % W;
-        const ry = (i * 29 + this.tick * 5) % floorY;
-        ctx.fillRect(rx, ry, 1, 7);
+      // Chuva lofi nativa do terraço (ou intensificada quando o som de chuva está ativo)
+      if (isRainActive || dayInfo.phase === 'NIGHT') {
+        ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
+        for (let i = 0; i < 36; i++) {
+          const rx = (i * 37 + this.tick * 2) % W;
+          const ry = (i * 29 + this.tick * 5) % floorY;
+          ctx.fillRect(rx, ry, 1, 7);
+        }
       }
     } else if (skinId === 'room_forest_campfire') {
-      // Forest Campfire Night
+      // 🏕️ Acampamento na Floresta (Adaptativo: Dia Claro na Montanha, Pôr do Sol Dourado e Noite Estrelada na Fogueira)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
-      grad.addColorStop(0, '#022c22');
-      grad.addColorStop(1, '#064e3b');
+      if (isRainActive) {
+        grad.addColorStop(0, '#0f172a');
+        grad.addColorStop(1, '#134e4a');
+      } else if (dayInfo.phase === 'DAY') {
+        grad.addColorStop(0, '#0284c7');
+        grad.addColorStop(0.6, '#38bdf8');
+        grad.addColorStop(1, '#bae6fd');
+      } else if (dayInfo.phase === 'DAWN') {
+        grad.addColorStop(0, '#4c1d95');
+        grad.addColorStop(0.55, '#f472b6');
+        grad.addColorStop(1, '#fde047');
+      } else if (dayInfo.phase === 'SUNSET') {
+        grad.addColorStop(0, '#431407');
+        grad.addColorStop(0.5, '#ea580c');
+        grad.addColorStop(1, '#fde047');
+      } else {
+        grad.addColorStop(0, '#022c22');
+        grad.addColorStop(1, '#064e3b');
+      }
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      for (let i = 0; i < 22; i++) {
-        const sx = (i * 53) % W;
-        const sy = (i * 23) % (floorY - 40);
-        ctx.fillStyle = i % 3 === 0 ? '#fde047' : '#a7f3d0';
-        const pulse = Math.sin(this.tick * 0.06 + i) > 0 ? 2 : 1;
-        ctx.fillRect(sx, sy, pulse, pulse);
+      if (dayInfo.phase === 'DAY' && !isRainActive) {
+        // Sol da montanha e nuvens brancas
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(288, 16, 16, 16);
+        const cloudX = ((this.tick * 0.12) % (W + 50)) - 25;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(Math.round(cloudX), 22, 32, 6);
+        ctx.fillRect(Math.round(cloudX) + 6, 18, 18, 4);
+      } else if (!isRainActive) {
+        // Estrelas / Vaga-lumes no céu noturno ou crepuscular
+        for (let i = 0; i < 22; i++) {
+          const sx = (i * 53) % W;
+          const sy = (i * 23) % (floorY - 40);
+          ctx.fillStyle = i % 3 === 0 ? '#fde047' : '#a7f3d0';
+          const pulse = Math.sin(this.tick * 0.06 + i) > 0 ? 2 : 1;
+          ctx.fillRect(sx, sy, pulse, pulse);
+        }
       }
 
+      // Pinheiros da floresta
       for (let tx = 16; tx < W; tx += 44) {
-        ctx.fillStyle = '#065f46';
+        ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#15803d' : '#065f46';
         ctx.fillRect(tx + 8, floorY - 64, 8, 64);
-        ctx.fillStyle = '#047857';
+        ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#16a34a' : '#047857';
         ctx.fillRect(tx, floorY - 46, 24, 16);
         ctx.fillRect(tx + 3, floorY - 60, 18, 16);
         ctx.fillRect(tx + 6, floorY - 72, 12, 14);
       }
 
+      // Fogueira central (fica mais intensa à noite, no pôr do sol ou com som de Lareira ligado!)
       const cx = 180;
       ctx.fillStyle = '#78350f';
       ctx.fillRect(cx - 12, floorY - 6, 24, 6);
-      const flameH = 10 + Math.floor(Math.sin(this.tick * 0.25) * 3);
+      const fireBoost = isFireActive ? 5 : dayInfo.phase === 'NIGHT' ? 2 : 0;
+      const flameH = 10 + fireBoost + Math.floor(Math.sin(this.tick * 0.25) * 3);
       ctx.fillStyle = '#f97316';
       ctx.fillRect(cx - 8, floorY - 6 - flameH, 16, flameH);
       ctx.fillStyle = '#facc15';
       ctx.fillRect(cx - 4, floorY - 6 - Math.floor(flameH * 0.7), 8, Math.floor(flameH * 0.7));
+
+      // Halo quente da fogueira iluminando o acampamento
+      if (dayInfo.phase !== 'DAY' || isFireActive) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.16)';
+        ctx.fillRect(cx - 42, floorY - 26, 84, 26);
+        ctx.restore();
+      }
     } else if (skinId === 'room_moving_train') {
-      // Moving Sunset Train Carriage
-      ctx.fillStyle = '#27171c';
+      // 🚆 Vagão de Trem em Movimento (Janelas Panorâmicas e Luz Interna Adaptativas ao Horário Real e Chuva!)
+      ctx.fillStyle =
+        dayInfo.phase === 'DAY' && !isRainActive
+          ? '#332228'
+          : dayInfo.phase === 'NIGHT'
+            ? '#171019'
+            : '#27171c';
       ctx.fillRect(0, 0, W, floorY);
 
       for (let wx = 20; wx < W - 30; wx += 112) {
         const skyGrad = ctx.createLinearGradient(0, 24, 0, 114);
-        skyGrad.addColorStop(0, '#c2410c');
-        skyGrad.addColorStop(0.6, '#fb923c');
-        skyGrad.addColorStop(1, '#fde047');
+        if (isRainActive) {
+          skyGrad.addColorStop(0, '#1e293b');
+          skyGrad.addColorStop(0.6, '#334155');
+          skyGrad.addColorStop(1, '#475569');
+        } else if (dayInfo.phase === 'DAY') {
+          skyGrad.addColorStop(0, '#0284c7');
+          skyGrad.addColorStop(0.6, '#38bdf8');
+          skyGrad.addColorStop(1, '#bae6fd');
+        } else if (dayInfo.phase === 'DAWN') {
+          skyGrad.addColorStop(0, '#581c87');
+          skyGrad.addColorStop(0.55, '#f472b6');
+          skyGrad.addColorStop(1, '#fde047');
+        } else if (dayInfo.phase === 'SUNSET') {
+          skyGrad.addColorStop(0, '#c2410c');
+          skyGrad.addColorStop(0.6, '#fb923c');
+          skyGrad.addColorStop(1, '#fde047');
+        } else {
+          skyGrad.addColorStop(0, '#090d16');
+          skyGrad.addColorStop(1, '#1e1b4b');
+        }
         ctx.fillStyle = skyGrad;
         ctx.fillRect(wx, 26, 94, 86);
 
+        // Paisagem em movimento lá fora (colinas de dia, estrelas/luzes urbanas à noite)
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(wx, 26, 94, 86);
+        ctx.clip();
+
+        if (dayInfo.phase === 'NIGHT' && !isRainActive) {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(wx + 18, 36, 2, 2);
+          ctx.fillRect(wx + 64, 42, 2, 2);
+          // Luzes distantes da cidade passando
+          const cityScroll = (this.tick * 1.5) % 94;
+          ctx.fillStyle = '#38bdf8';
+          ctx.fillRect(wx + 94 - cityScroll, 96, 12, 16);
+          ctx.fillStyle = '#f472b6';
+          ctx.fillRect(wx + ((140 - cityScroll) % 94), 92, 10, 20);
+        } else if (dayInfo.phase === 'DAY' && !isRainActive) {
+          ctx.fillStyle = '#16a34a';
+          ctx.fillRect(wx, 94, 94, 18);
+        }
+
         const scrollX = (this.tick * 2) % 94;
-        ctx.fillStyle = '#431407';
+        ctx.fillStyle = dayInfo.phase === 'DAY' ? '#1e293b' : '#431407';
         ctx.fillRect(wx + 94 - scrollX, 54, 3, 58);
 
-        ctx.strokeStyle = '#78350f';
+        if (isRainActive) {
+          this.drawWindowRainAndDroplets(ctx, wx, 26, 94, 86);
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = this.hoveredWindow ? '#facc15' : '#78350f';
         ctx.lineWidth = 4;
         ctx.strokeRect(wx, 26, 94, 86);
       }
 
+      // Alças suspensas do vagão
       for (let hx = 45; hx < W - 30; hx += 65) {
         const sway = Math.round(Math.sin(this.tick * 0.08) * 2);
         ctx.fillStyle = '#a1a1aa';
@@ -2215,24 +2485,54 @@ export class PixelCanvasRenderer {
         ctx.strokeRect(hx - 3 + sway, 18, 8, 6);
       }
     } else if (skinId === 'room_beco_rapariga') {
-      // 🪧 Beco da Rapariga (Fiel à arte enviada: Céu azul dithered + Muro pichado + Placa vermelha em 2 postes + Arbusto + Poste de luz)
-      // 1. Céu azul no topo (0..26) com efeito de dithering quadriculado na base do céu
-      ctx.fillStyle = '#2764c8';
+      // 🪧 Beco da Rapariga (Fiel à arte enviada + Céu e Iluminação do Poste Adaptativos ao Horário Real e Clima!)
+      // 1. Céu no topo (0..26) com dithering quadriculado adaptativo (Azul de Dia, Laranja no Pôr do Sol, Estrelado à Noite, Cinza na Chuva)
+      const skyTop = isRainActive
+        ? '#1e293b'
+        : dayInfo.phase === 'DAY'
+          ? '#2764c8'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? '#9a3412'
+            : '#090d16';
+      const skyDither = isRainActive
+        ? '#475569'
+        : dayInfo.phase === 'DAY'
+          ? '#4f8fe8'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? '#fb923c'
+            : '#1e1b4b';
+
+      ctx.fillStyle = skyTop;
       ctx.fillRect(0, 0, W, 26);
-      ctx.fillStyle = '#4f8fe8';
+      ctx.fillStyle = skyDither;
       for (let dy = 18; dy < 26; dy += 2) {
-        for (let dx = (dy % 4 === 0 ? 0 : 2); dx < W; dx += 4) {
+        for (let dx = dy % 4 === 0 ? 0 : 2; dx < W; dx += 4) {
           ctx.fillRect(dx, dy, 2, 2);
         }
       }
 
-      // Nuvem branca pixelada no canto superior direito
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(268, 7, 36, 5);
-      ctx.fillRect(252, 11, 68, 5);
-      ctx.fillRect(240, 15, 92, 4);
-      ctx.fillStyle = '#c5d9f2';
-      ctx.fillRect(248, 19, 76, 3);
+      // Nuvem pixelada no canto superior direito (ou estrelas à noite quando limpo)
+      if (dayInfo.phase === 'NIGHT' && !isRainActive) {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(44, 8, 2, 2);
+        ctx.fillRect(142, 11, 2, 2);
+        ctx.fillRect(284, 7, 3, 3);
+      } else {
+        ctx.fillStyle = isRainActive
+          ? '#64748b'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? '#fed7aa'
+            : '#ffffff';
+        ctx.fillRect(268, 7, 36, 5);
+        ctx.fillRect(252, 11, 68, 5);
+        ctx.fillRect(240, 15, 92, 4);
+        ctx.fillStyle = isRainActive
+          ? '#475569'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? '#fdba74'
+            : '#c5d9f2';
+        ctx.fillRect(248, 19, 76, 3);
+      }
 
       // 2. Viga de concreto superior (y = 25..31)
       ctx.fillStyle = '#d6d6ce';
@@ -2279,7 +2579,6 @@ export class PixelCanvasRenderer {
 
       // 6. Pichações / Grafites de Rua em Pixel Art (Preto, Rosa e Vermelho)
       ctx.fillStyle = '#181b1e';
-      // Traços verticais/diagonais angulares de pichação no muro
       const tagStrokes: Array<[number, number, number, number]> = [
         [152, 92, 3, 12],
         [155, 100, 3, 14],
@@ -2347,45 +2646,35 @@ export class PixelCanvasRenderer {
       ctx.fillRect(94, 86, 4, floorY - 86);
 
       // 8. Placa Vermelha/Marrom Icônica (Exatamente como na imagem!)
-      // Moldura externa marrom-escura
       ctx.fillStyle = '#5c1916';
       ctx.fillRect(16, 52, 104, 36);
-      // Borda interna clara
       ctx.fillStyle = '#9e473e';
       ctx.fillRect(19, 55, 98, 30);
-      // Fundo vermelho-tijolo
       ctx.fillStyle = '#7f231c';
       ctx.fillRect(21, 57, 94, 26);
 
-      // Quadrado branco superior na placa com o ícone preto pixelado
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(44, 59, 48, 13);
       ctx.fillStyle = '#111827';
-      // Cabeça/topo do símbolo preto
       ctx.fillRect(61, 60, 14, 6);
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(64, 62, 8, 2);
-      // Base/pernas simétricas do símbolo preto
       ctx.fillStyle = '#111827';
       ctx.fillRect(54, 66, 9, 5);
       ctx.fillRect(73, 66, 9, 5);
 
-      // Três linhas de barras de texto brancas na parte inferior da placa
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(36, 74, 18, 2);
       ctx.fillRect(58, 74, 18, 2);
       ctx.fillRect(80, 74, 20, 2);
-
       ctx.fillRect(36, 78, 26, 2);
       ctx.fillRect(66, 78, 34, 2);
-
       ctx.fillRect(36, 81, 64, 2);
 
       // 9. Arbusto verde pontiagudo na calçada (direita)
       ctx.fillStyle = '#275927';
       ctx.fillRect(248, floorY - 10, 26, 10);
       ctx.fillStyle = '#3b7a2e';
-      // Folhas pontiagudas abrindo em leque
       ctx.fillRect(258, floorY - 22, 6, 14);
       ctx.fillRect(246, floorY - 20, 5, 12);
       ctx.fillRect(270, floorY - 20, 5, 12);
@@ -2396,31 +2685,43 @@ export class PixelCanvasRenderer {
       ctx.fillRect(286, floorY - 11, 8, 4);
       ctx.fillRect(260, floorY - 22, 3, 10);
 
-      // 10. Poste baixo cinza-escuro com lâmpada amarela acesa à direita
+      // Banho de luz ambiente no muro conforme horário (Pôr do sol alaranjado / Noite urbana)
+      if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+        ctx.fillStyle = 'rgba(249, 115, 22, 0.14)';
+        ctx.fillRect(0, 25, W, floorY - 25);
+      } else if (dayInfo.phase === 'NIGHT') {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+        ctx.fillRect(0, 25, W, floorY - 25);
+      }
+
+      // 10. Poste baixo cinza-escuro com lâmpada amarela acesa à direita (brilha muito mais forte à noite e na chuva!)
       ctx.fillStyle = '#323a47';
       ctx.fillRect(300, floorY - 4, 32, 4);
       ctx.fillStyle = '#3b4454';
       ctx.fillRect(308, floorY - 32, 11, 28);
       ctx.fillRect(308, floorY - 32, 30, 8);
       ctx.fillRect(328, floorY - 24, 10, 4);
-      // Lâmpada amarela brilhante + halo suave
       ctx.fillStyle = '#facc15';
       ctx.fillRect(328, floorY - 20, 7, 4);
       ctx.save();
-      ctx.globalAlpha = 0.18 + Math.sin(this.tick * 0.08) * 0.05;
+      const baseGlow = dayInfo.phase === 'NIGHT' || isRainActive ? 0.34 : 0.18;
+      ctx.globalAlpha = baseGlow + Math.sin(this.tick * 0.08) * 0.05;
       ctx.fillStyle = '#fef08a';
       ctx.beginPath();
       ctx.moveTo(327, floorY - 16);
       ctx.lineTo(336, floorY - 16);
-      ctx.lineTo(346, floorY);
-      ctx.lineTo(316, floorY);
+      ctx.lineTo(352, floorY);
+      ctx.lineTo(306, floorY);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
     } else {
-      // Default: Estúdio Lofi Aconchegante com Ciclo Dia / Tarde / Pôr do Sol / Noite na Janela (room_cozy_desk)
+      // Default: Estúdio Lofi Aconchegante com Ciclo Dia / Tarde / Pôr do Sol / Noite + Clima Adaptativo (room_cozy_desk)
       const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        wallGrad.addColorStop(0, '#1e293b');
+        wallGrad.addColorStop(1, '#334155');
+      } else if (dayInfo.phase === 'DAY') {
         wallGrad.addColorStop(0, '#27325c');
         wallGrad.addColorStop(1, '#3b4c7e');
       } else if (dayInfo.phase === 'DAWN') {
@@ -2436,9 +2737,13 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = wallGrad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Janela do Quarto (x: 28..104, y: 22..100) com Céu Dinâmico conforme Horário Local
+      // Janela do Quarto (x: 28..104, y: 22..100) com Céu Dinâmico conforme Horário Local e Clima
       const skyGrad = ctx.createLinearGradient(0, 22, 0, 100);
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        skyGrad.addColorStop(0, '#0f172a');
+        skyGrad.addColorStop(0.55, '#1e293b');
+        skyGrad.addColorStop(1, '#475569');
+      } else if (dayInfo.phase === 'DAY') {
         skyGrad.addColorStop(0, '#0284c7');
         skyGrad.addColorStop(0.55, '#38bdf8');
         skyGrad.addColorStop(1, '#bae6fd');
@@ -2458,13 +2763,22 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = skyGrad;
       ctx.fillRect(28, 22, 76, 78);
 
-      // Elementos dentro da janela conforme o horário real
+      // Elementos dentro da janela conforme o horário real e clima
       ctx.save();
       ctx.beginPath();
       ctx.rect(28, 22, 76, 78);
       ctx.clip();
 
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        // Nuvens densas e colinas escuras sob a chuva
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(30, 26, 40, 8);
+        ctx.fillRect(62, 30, 40, 8);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(28, 86, 46, 14);
+        ctx.fillRect(62, 83, 42, 17);
+        this.drawWindowRainAndDroplets(ctx, 28, 22, 76, 78);
+      } else if (dayInfo.phase === 'DAY') {
         // Sol radiante + Halo suave
         ctx.fillStyle = 'rgba(254, 240, 138, 0.32)';
         ctx.fillRect(73, 29, 20, 20);
@@ -2553,9 +2867,11 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = '#334155';
       ctx.fillRect(22, 98, 88, 6);
 
-      // Feixe de Luz entrando pela Janela (Luz do Sol / Luz Alaranjada do Pôr do Sol / Luar Suave)
+      // Feixe de Luz entrando pela Janela (Luz do Sol / Pôr do Sol / Luar / Reflexo de Chuva)
       ctx.save();
-      if (dayInfo.phase === 'DAY') {
+      if (isRainActive) {
+        ctx.fillStyle = 'rgba(125, 211, 252, 0.08)';
+      } else if (dayInfo.phase === 'DAY') {
         ctx.fillStyle = 'rgba(254, 249, 195, 0.13)';
       } else if (dayInfo.phase === 'SUNSET') {
         ctx.fillStyle = 'rgba(251, 146, 60, 0.17)';
@@ -2573,7 +2889,7 @@ export class PixelCanvasRenderer {
       ctx.fill();
 
       // Partículas de poeira dourada flutuando dentro do feixe de luz solar/pôr do sol
-      if (dayInfo.phase !== 'NIGHT') {
+      if (dayInfo.phase !== 'NIGHT' && !isRainActive) {
         ctx.fillStyle =
           dayInfo.phase === 'SUNSET'
             ? 'rgba(253, 224, 71, 0.65)'
@@ -2609,6 +2925,148 @@ export class PixelCanvasRenderer {
     }
   }
 
+  /**
+   * Chuva e gotículas escorrendo em janelas (Estúdio Lofi, Escritório e Vagão de Trem)
+   */
+  private drawWindowRainAndDroplets(
+    ctx: CanvasRenderingContext2D,
+    wx: number,
+    wy: number,
+    ww: number,
+    wh: number
+  ) {
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.55)';
+    for (let i = 0; i < 16; i++) {
+      const rx = wx + ((i * 19 + this.tick * 2) % ww);
+      const ry = wy + ((i * 17 + this.tick * 4) % wh);
+      ctx.fillRect(rx, ry, 1, 6);
+    }
+    // Gotículas de água escorrendo devagar pelo vidro da janela
+    ctx.fillStyle = 'rgba(224, 242, 254, 0.78)';
+    for (let d = 0; d < 7; d++) {
+      const dx = wx + 8 + ((d * 13) % Math.max(10, ww - 16));
+      const dy = wy + 6 + ((d * 23 + Math.floor(this.tick * 0.4)) % Math.max(10, wh - 12));
+      ctx.fillRect(dx, dy, 2, 2);
+    }
+  }
+
+  /**
+   * Camada de Clima & Atmosfera Adaptativa em TODO o cenário (não apenas na janela!):
+   * - Chuva em cenários abertos, respingos no chão, ondulações na água e reflexo chuvoso em ambientes internos
+   * - Brilho quente e fagulhas de Lareira em todo o cenário
+   * - Brisa suave com folhinhas/pétalas flutuando pelo cenário
+   * - Iluminação atmosférica sutil do horário (Pôr do Sol / Noite / Manhã) sobre toda a cena
+   */
+  private drawAdaptiveScenarioWeatherForeground(
+    ctx: CanvasRenderingContext2D,
+    skinId: string,
+    W: number,
+    H: number,
+    floorY: number
+  ) {
+    const dayInfo = getLocalDayTimeInfo();
+    const isRainActive = soundEngine.isAmbientActive('rain');
+    const isFireActive = soundEngine.isAmbientActive('fireplace');
+    const isBreezeActive = soundEngine.isAmbientActive('brown_noise');
+    const isCoffeeActive = soundEngine.isAmbientActive('coffee');
+    const isOutdoor =
+      skinId === 'room_dense_forest' ||
+      skinId === 'room_forest_campfire' ||
+      skinId === 'room_rainy_rooftop' ||
+      skinId === 'room_beco_rapariga';
+
+    ctx.save();
+
+    // 1. Iluminação Atmosférica Global do Horário sobre todo o cenário e piso
+    if (dayInfo.phase === 'SUNSET') {
+      ctx.fillStyle = 'rgba(251, 146, 60, 0.06)';
+      ctx.fillRect(0, 0, W, H);
+    } else if (dayInfo.phase === 'DAWN') {
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.05)';
+      ctx.fillRect(0, 0, W, H);
+    } else if (dayInfo.phase === 'NIGHT' && skinId !== 'room_cozy_desk' && skinId !== 'room_office') {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.10)';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // 2. 🌧️ Clima de Chuva Adaptativo em todo o cenário
+    if (isRainActive || (skinId === 'room_rainy_rooftop' && dayInfo.phase === 'NIGHT')) {
+      if (isOutdoor) {
+        // Chuva caindo por toda a extensão do cenário aberto + respingos quicando no chão!
+        ctx.fillStyle = 'rgba(125, 211, 252, 0.5)';
+        for (let i = 0; i < 42; i++) {
+          const rx = (i * 31 + this.tick * 2) % W;
+          const ry = (i * 23 + this.tick * 6) % floorY;
+          ctx.fillRect(rx, ry, 1, 7);
+        }
+        // Respingos animados (splashes) quicando em todo o piso/grama/calçada
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
+        for (let s = 0; s < 14; s++) {
+          const sx = (s * 27 + Math.floor(this.tick * 1.7)) % W;
+          const splashPhase = (this.tick + s * 5) % 8;
+          if (splashPhase < 4) {
+            ctx.fillRect(sx - splashPhase, floorY - 1 - (splashPhase % 2), 2, 1);
+            ctx.fillRect(sx + splashPhase, floorY - 1 - (splashPhase % 2), 2, 1);
+          }
+        }
+      } else if (skinId === 'room_underwater') {
+        // Gotas agitando a superfície da água no topo do recife
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.65)';
+        for (let r = 0; r < 10; r++) {
+          const rx = (r * 37 + this.tick * 2) % W;
+          const rippleW = 4 + ((this.tick + r * 3) % 8);
+          ctx.fillRect(rx - Math.floor(rippleW / 2), 3 + (r % 5), rippleW, 1);
+        }
+      } else {
+        // Ambientes internos (Estúdio Lofi, Escritório, Vagão de Trem): atmosfera azulada aconchegante de chuva no ambiente inteiro
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+
+    // 3. 🔥 Clima de Lareira Acesa / Aconchego (Brilho âmbar pulsante no piso e brasas suaves subindo pelo cenário)
+    if (isFireActive) {
+      const pulse = 0.09 + Math.sin(this.tick * 0.12) * 0.025;
+      const fireGrad = ctx.createLinearGradient(0, floorY - 75, 0, H);
+      fireGrad.addColorStop(0, 'rgba(251, 146, 60, 0)');
+      fireGrad.addColorStop(0.65, `rgba(249, 115, 22, ${pulse.toFixed(3)})`);
+      fireGrad.addColorStop(1, `rgba(234, 88, 12, ${(pulse * 1.35).toFixed(3)})`);
+      ctx.fillStyle = fireGrad;
+      ctx.fillRect(0, floorY - 75, W, H - (floorY - 75));
+
+      // Pequenas fagulhas/brasas douradas subindo suavemente
+      for (let e = 0; e < 10; e++) {
+        const ex = (e * 39 + Math.round(Math.sin(this.tick * 0.05 + e) * 6) + W) % W;
+        const ey = floorY - ((this.tick + e * 17) % 68);
+        ctx.fillStyle = e % 2 === 0 ? '#fde047' : '#fb923c';
+        ctx.fillRect(ex, ey, 2, 2);
+      }
+    }
+
+    // 4. 🍃 Clima de Brisa Suave (Folhinhas / pétalas flutuando horizontalmente pelo cenário)
+    if (isBreezeActive) {
+      for (let b = 0; b < 9; b++) {
+        const bx = ((this.tick * 1.4 + b * 43) % (W + 20)) - 10;
+        const by = 24 + ((b * 19 + Math.round(Math.sin(this.tick * 0.06 + b) * 7)) % (floorY - 34));
+        ctx.fillStyle =
+          skinId === 'room_underwater'
+            ? 'rgba(186, 230, 253, 0.7)'
+            : b % 2 === 0
+              ? '#86efac'
+              : '#fbcfe8';
+        ctx.fillRect(Math.round(bx), Math.round(by), 3, 2);
+      }
+    }
+
+    // 5. ☕ Clima de Cafeteria (Luz sépia aconchegante sutil no ambiente)
+    if (isCoffeeActive) {
+      ctx.fillStyle = 'rgba(217, 119, 6, 0.045)';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    ctx.restore();
+  }
+
   private drawFloorStrip(
     ctx: CanvasRenderingContext2D,
     skinId: string,
@@ -2617,9 +3075,12 @@ export class PixelCanvasRenderer {
     floorY: number
   ) {
     const fh = PixelCanvasRenderer.FLOOR_HEIGHT;
+    const dayInfo = getLocalDayTimeInfo();
+    const isRainActive = soundEngine.isAmbientActive('rain');
+
     if (skinId === 'room_beco_rapariga') {
       // Meio-fio e calçada cinza urbana com frestas verticais (fiel à imagem!)
-      ctx.fillStyle = '#6c7582';
+      ctx.fillStyle = dayInfo.phase === 'NIGHT' ? '#525b66' : '#6c7582';
       ctx.fillRect(0, floorY, W, fh);
       ctx.fillStyle = '#59616e';
       ctx.fillRect(0, floorY, W, 3);
@@ -2629,15 +3090,15 @@ export class PixelCanvasRenderer {
         ctx.fillRect(px + 10, floorY + 7, 3, fh - 7);
       }
     } else if (skinId === 'room_forest_campfire' || skinId === 'room_dense_forest') {
-      ctx.fillStyle = '#14532d';
+      ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#15803d' : '#14532d';
       ctx.fillRect(0, floorY, W, fh);
-      ctx.fillStyle = '#22c55e';
+      ctx.fillStyle = dayInfo.phase === 'SUNSET' ? '#4ade80' : '#22c55e';
       ctx.fillRect(0, floorY, W, 4);
     } else if (skinId === 'room_underwater') {
-      // Sandy ocean floor with shells
-      ctx.fillStyle = '#d97706';
+      // Sandy ocean floor with shells (adapta o tom da areia entre Dia e Noite Abissal)
+      ctx.fillStyle = dayInfo.phase === 'NIGHT' ? '#78350f' : '#d97706';
       ctx.fillRect(0, floorY, W, fh);
-      ctx.fillStyle = '#fde047';
+      ctx.fillStyle = dayInfo.phase === 'NIGHT' ? '#ca8a04' : '#fde047';
       ctx.fillRect(0, floorY, W, 4);
       ctx.fillStyle = '#fb7185';
       ctx.fillRect(65, floorY + 7, 5, 4);
@@ -2651,7 +3112,8 @@ export class PixelCanvasRenderer {
     } else if (skinId === 'room_rainy_rooftop') {
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(0, floorY, W, fh);
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle =
+        dayInfo.phase === 'SUNSET' && !isRainActive ? '#fb923c' : '#38bdf8';
       ctx.fillRect(0, floorY, W, 3);
     } else {
       // Cozy wooden planks
@@ -2663,6 +3125,20 @@ export class PixelCanvasRenderer {
       for (let px = 0; px < W; px += 36) {
         ctx.fillRect(px, floorY + 4, 2, fh - 4);
       }
+    }
+
+    // Poças d'água reflexivas no chão de cenários abertos quando está chovendo
+    if (
+      isRainActive &&
+      (skinId === 'room_beco_rapariga' ||
+        skinId === 'room_dense_forest' ||
+        skinId === 'room_forest_campfire' ||
+        skinId === 'room_rainy_rooftop')
+    ) {
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.28)';
+      ctx.fillRect(46, floorY + 4, 34, 3);
+      ctx.fillRect(156, floorY + 6, 44, 3);
+      ctx.fillRect(272, floorY + 4, 38, 3);
     }
   }
 

@@ -1163,8 +1163,40 @@ class PocketCornerApp {
   private interactWithWindow() {
     const dayInfo = getLocalDayTimeInfo();
     const skinId = this.room?.roomSkinId || 'room_cozy_desk';
-    const winX = skinId === 'room_office' ? 75 : 66;
-    this.walkToPointOfInterest(winX, 'COFFEE', dayInfo.windowThought, true);
+    const isRain = soundEngine.isAmbientActive('rain');
+    const isFire = soundEngine.isAmbientActive('fireplace');
+
+    const targetXMap: Record<string, number> = {
+      room_cozy_desk: 66,
+      room_office: 75,
+      room_moving_train: 175,
+      room_beco_rapariga: 210,
+      room_forest_campfire: 172,
+      room_dense_forest: 165,
+      room_rainy_rooftop: 185,
+      room_underwater: 180,
+    };
+    const winX = targetXMap[skinId] ?? 110;
+
+    let thought = dayInfo.windowThought;
+    if (isRain) {
+      thought = '🌧️ Ouvindo o barulhinho bom de chuva no cenário...';
+    } else if (isFire) {
+      thought = '🔥 Aproveitando o calorzinho aconchegante da lareira...';
+    } else if (skinId === 'room_moving_train') {
+      thought = `${dayInfo.icon} Olhando a paisagem passar pela janela do trem...`;
+    } else if (skinId === 'room_underwater') {
+      thought =
+        dayInfo.phase === 'NIGHT'
+          ? '🌊 Admirando o brilho bioluminescente do mar à noite...'
+          : '🌊 Observando a luz do sol atravessar a água do recife...';
+    } else if (skinId === 'room_dense_forest' || skinId === 'room_forest_campfire') {
+      thought = `${dayInfo.icon} Respirando o ar puro da floresta (${dayInfo.label})...`;
+    } else if (skinId === 'room_beco_rapariga' || skinId === 'room_rainy_rooftop') {
+      thought = `${dayInfo.icon} Curtindo o clima urbano (${dayInfo.label})...`;
+    }
+
+    this.walkToPointOfInterest(winX, 'COFFEE', thought, true);
   }
 
   private walkToPointOfInterest(
