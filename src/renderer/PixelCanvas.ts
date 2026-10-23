@@ -1948,9 +1948,29 @@ export class PixelCanvasRenderer {
         ctx.fillRect(tx + 16, 0, 8, floorY);
       }
 
+      // Aberturas de céu entre a copa das árvores no topo mostrando o horário real (Céu azul de dia, Pôr do sol laranja, Estrelas à noite)
+      const canopySkyColor = isRainActive
+        ? '#334155'
+        : dayInfo.phase === 'DAY'
+          ? '#38bdf8'
+          : dayInfo.phase === 'SUNSET'
+            ? '#fb923c'
+            : dayInfo.phase === 'DAWN'
+              ? '#f472b6'
+              : '#090d16';
+      for (let sx = 18; sx < W - 20; sx += 78) {
+        ctx.fillStyle = canopySkyColor;
+        ctx.fillRect(sx, 0, 26, 16);
+        if (dayInfo.phase === 'NIGHT' && !isRainActive) {
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(sx + 8, 5, 2, 2);
+          ctx.fillRect(sx + 18, 9, 2, 2);
+        }
+      }
+
       // Dense leaf canopy along top ceiling
       ctx.fillStyle = dayInfo.phase === 'DAY' && !isRainActive ? '#047857' : '#065f46';
-      ctx.fillRect(0, 0, W, 28);
+      ctx.fillRect(0, 0, W, 10);
       for (let lx = 0; lx < W; lx += 28) {
         ctx.fillStyle =
           lx % 56 === 0
@@ -1958,7 +1978,7 @@ export class PixelCanvasRenderer {
               ? '#15803d'
               : '#047857'
             : '#15803d';
-        ctx.fillRect(lx, 16, 30, 18);
+        ctx.fillRect(lx, 12, 24, 18);
       }
 
       // Hanging vines swaying gently
@@ -2050,6 +2070,9 @@ export class PixelCanvasRenderer {
         if (dayInfo.phase === 'DAY') {
           ctx.fillStyle = '#fef08a';
           ctx.fillRect(104, 28, 12, 12);
+          const ocX = 24 + (((this.tick * 0.12) % 92) - 12);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillRect(Math.round(ocX), 34, 22, 4);
         } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
           ctx.fillStyle = '#fb923c';
           ctx.fillRect(98, 52, 16, 14);
@@ -2128,15 +2151,28 @@ export class PixelCanvasRenderer {
       ctx.fill();
       ctx.restore();
 
-      // Wall Clock (Center) reflecting real time
+      // Wall Clock (Center) com ponteiros sincronizados com a hora real + visor digital
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(156, 24, 18, 18);
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
       ctx.strokeRect(156, 24, 18, 18);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(164, 28, 2, 6);
-      ctx.fillRect(164, 32, 5, 2);
+      const clockCx = 165;
+      const clockCy = 33;
+      const hourAngle = (((dayInfo.hours % 12) + dayInfo.minutes / 60) / 12) * Math.PI * 2 - Math.PI / 2;
+      const minAngle = (dayInfo.minutes / 60) * Math.PI * 2 - Math.PI / 2;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(clockCx, clockCy);
+      ctx.lineTo(clockCx + Math.cos(hourAngle) * 4.5, clockCy + Math.sin(hourAngle) * 4.5);
+      ctx.stroke();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(clockCx, clockCy);
+      ctx.lineTo(clockCx + Math.cos(minAngle) * 6.5, clockCy + Math.sin(minAngle) * 6.5);
+      ctx.stroke();
 
       // Agile Kanban / Strategy Whiteboard (Right)
       ctx.fillStyle = '#f8fafc';
@@ -2176,8 +2212,9 @@ export class PixelCanvasRenderer {
         grad.addColorStop(0.55, '#0369a1');
         grad.addColorStop(1, '#075985');
       } else if (dayInfo.phase === 'DAWN' || dayInfo.phase === 'SUNSET') {
-        grad.addColorStop(0, '#4c1d95');
-        grad.addColorStop(0.45, '#0369a1');
+        grad.addColorStop(0, '#7c2d12');
+        grad.addColorStop(0.32, '#4c1d95');
+        grad.addColorStop(0.7, '#0369a1');
         grad.addColorStop(1, '#082f49');
       } else {
         // Noite Abissal Bioluminescente
@@ -2188,13 +2225,31 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
+      // Superfície cintilante da água no topo (y: 0..10) refletindo o Sol, Pôr do Sol ou Luar
+      ctx.fillStyle =
+        dayInfo.phase === 'DAY'
+          ? 'rgba(186, 230, 253, 0.38)'
+          : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+            ? 'rgba(251, 146, 60, 0.42)'
+            : 'rgba(148, 163, 184, 0.22)';
+      ctx.fillRect(0, 0, W, 8);
+      if (!isRainActive) {
+        ctx.fillStyle =
+          dayInfo.phase === 'DAY'
+            ? '#fef08a'
+            : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+              ? '#fb923c'
+              : '#e2e8f0';
+        ctx.fillRect(274, 2, 22, 5);
+      }
+
       // Feixes de luz atravessando a água (solares de dia, dourados/rosados no pôr do sol, luar sutil à noite)
       ctx.save();
       ctx.fillStyle =
         dayInfo.phase === 'DAY'
-          ? 'rgba(186, 230, 253, 0.14)'
+          ? 'rgba(186, 230, 253, 0.15)'
           : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
-            ? 'rgba(251, 146, 60, 0.14)'
+            ? 'rgba(251, 146, 60, 0.16)'
             : 'rgba(56, 189, 248, 0.06)';
       for (let rx = 20; rx < W; rx += 95) {
         ctx.beginPath();
@@ -2250,7 +2305,7 @@ export class PixelCanvasRenderer {
         ctx.strokeRect(bx, by, 4, 4);
       }
     } else if (skinId === 'room_rainy_rooftop') {
-      // 🌆 Terraço Urbano Lofi (Adaptativo: Céu Diurno, Amanhecer, Pôr do Sol Laranja e Noite Neon + Chuva Adaptativa)
+      // 🌆 Cobertura Chuvosa Lofi (Adaptativo: Céu Diurno, Amanhecer, Pôr do Sol Laranja e Noite Neon + Chuva Adaptativa)
       const grad = ctx.createLinearGradient(0, 0, 0, floorY);
       if (isRainActive) {
         grad.addColorStop(0, '#090d16');
@@ -2275,7 +2330,7 @@ export class PixelCanvasRenderer {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, floorY);
 
-      // Sol, Lua ou Nuvens no horizonte do Terraço Urbano
+      // Sol, Lua ou Nuvens no horizonte da Cobertura
       if (!isRainActive) {
         if (dayInfo.phase === 'DAY') {
           ctx.fillStyle = '#fef08a';
@@ -2324,7 +2379,7 @@ export class PixelCanvasRenderer {
         }
       });
 
-      // Chuva lofi nativa do terraço (ou intensificada quando o som de chuva está ativo)
+      // Chuva lofi nativa da cobertura (ou intensificada quando o som de chuva está ativo)
       if (isRainActive || dayInfo.phase === 'NIGHT') {
         ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
         for (let i = 0; i < 36; i++) {
@@ -2366,8 +2421,18 @@ export class PixelCanvasRenderer {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(Math.round(cloudX), 22, 32, 6);
         ctx.fillRect(Math.round(cloudX) + 6, 18, 18, 4);
+      } else if ((dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') && !isRainActive) {
+        // Sol alaranjado se pondo atrás dos pinheiros
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.35)';
+        ctx.fillRect(272, 26, 26, 24);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(277, 30, 16, 16);
       } else if (!isRainActive) {
-        // Estrelas / Vaga-lumes no céu noturno ou crepuscular
+        // Lua Crescente + Estrelas / Vaga-lumes no céu noturno
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(290, 14, 12, 12);
+        ctx.fillStyle = '#022c22';
+        ctx.fillRect(295, 12, 10, 10);
         for (let i = 0; i < 22; i++) {
           const sx = (i * 53) % W;
           const sy = (i * 23) % (floorY - 40);
@@ -2440,16 +2505,36 @@ export class PixelCanvasRenderer {
         ctx.fillStyle = skyGrad;
         ctx.fillRect(wx, 26, 94, 86);
 
-        // Paisagem em movimento lá fora (colinas de dia, estrelas/luzes urbanas à noite)
+        // Paisagem em movimento lá fora (Sol/colinas de dia, Sol poente à tarde, Lua/estrelas/luzes urbanas à noite)
         ctx.save();
         ctx.beginPath();
         ctx.rect(wx, 26, 94, 86);
         ctx.clip();
 
+        if (!isRainActive) {
+          if (wx === 132) {
+            // Astro principal visível na janela central do trem
+            if (dayInfo.phase === 'DAY') {
+              ctx.fillStyle = '#fef08a';
+              ctx.fillRect(wx + 62, 34, 12, 12);
+            } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+              ctx.fillStyle = '#fb923c';
+              ctx.fillRect(wx + 56, 62, 16, 14);
+              ctx.fillStyle = '#fde047';
+              ctx.fillRect(wx + 59, 65, 10, 8);
+            } else {
+              ctx.fillStyle = '#fef08a';
+              ctx.fillRect(wx + 64, 34, 10, 10);
+              ctx.fillStyle = '#090d16';
+              ctx.fillRect(wx + 68, 32, 8, 8);
+            }
+          }
+        }
+
         if (dayInfo.phase === 'NIGHT' && !isRainActive) {
           ctx.fillStyle = '#fef08a';
           ctx.fillRect(wx + 18, 36, 2, 2);
-          ctx.fillRect(wx + 64, 42, 2, 2);
+          ctx.fillRect(wx + 44, 42, 2, 2);
           // Luzes distantes da cidade passando
           const cityScroll = (this.tick * 1.5) % 94;
           ctx.fillStyle = '#38bdf8';
@@ -2473,6 +2558,32 @@ export class PixelCanvasRenderer {
         ctx.strokeStyle = this.hoveredWindow ? '#facc15' : '#78350f';
         ctx.lineWidth = 4;
         ctx.strokeRect(wx, 26, 94, 86);
+
+        // Feixe de luz entrando de cada janela panorâmica para o piso do vagão
+        ctx.save();
+        ctx.fillStyle = isRainActive
+          ? 'rgba(125, 211, 252, 0.06)'
+          : dayInfo.phase === 'DAY'
+            ? 'rgba(254, 249, 195, 0.10)'
+            : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
+              ? 'rgba(251, 146, 60, 0.13)'
+              : 'rgba(253, 224, 71, 0.05)';
+        ctx.beginPath();
+        ctx.moveTo(wx, 112);
+        ctx.lineTo(wx + 94, 112);
+        ctx.lineTo(wx + 108, floorY);
+        ctx.lineTo(wx + 8, floorY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Luminárias internas quentes no teto do vagão acesas à noite ou na chuva
+      if (dayInfo.phase === 'NIGHT' || isRainActive) {
+        for (let lx = 66; lx < W - 40; lx += 112) {
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(lx - 8, 4, 16, 4);
+        }
       }
 
       // Alças suspensas do vagão
@@ -2511,13 +2622,22 @@ export class PixelCanvasRenderer {
         }
       }
 
-      // Nuvem pixelada no canto superior direito (ou estrelas à noite quando limpo)
+      // Sol de Dia / Sol Poente à Tarde / Lua e Estrelas à Noite + Nuvem Pixelada no Topo
       if (dayInfo.phase === 'NIGHT' && !isRainActive) {
+        // Lua crescente + estrelas no céu noturno do Beco
         ctx.fillStyle = '#fef08a';
-        ctx.fillRect(44, 8, 2, 2);
-        ctx.fillRect(142, 11, 2, 2);
+        ctx.fillRect(36, 5, 10, 10);
+        ctx.fillStyle = skyTop;
+        ctx.fillRect(40, 4, 8, 8);
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(94, 8, 2, 2);
+        ctx.fillRect(162, 11, 2, 2);
         ctx.fillRect(284, 7, 3, 3);
       } else {
+        if (!isRainActive) {
+          ctx.fillStyle = dayInfo.phase === 'DAY' ? '#fef08a' : '#fde047';
+          ctx.fillRect(36, 5, 11, 11);
+        }
         ctx.fillStyle = isRainActive
           ? '#64748b'
           : dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN'
@@ -2694,27 +2814,30 @@ export class PixelCanvasRenderer {
         ctx.fillRect(0, 25, W, floorY - 25);
       }
 
-      // 10. Poste baixo cinza-escuro com lâmpada amarela acesa à direita (brilha muito mais forte à noite e na chuva!)
+      // 10. Poste baixo cinza-escuro com lâmpada amarela à direita (apagada de dia limpo, acesa forte no Pôr do Sol/Noite/Chuva!)
       ctx.fillStyle = '#323a47';
       ctx.fillRect(300, floorY - 4, 32, 4);
       ctx.fillStyle = '#3b4454';
       ctx.fillRect(308, floorY - 32, 11, 28);
       ctx.fillRect(308, floorY - 32, 30, 8);
       ctx.fillRect(328, floorY - 24, 10, 4);
-      ctx.fillStyle = '#facc15';
+      const lampOn = dayInfo.phase !== 'DAY' || isRainActive;
+      ctx.fillStyle = lampOn ? '#facc15' : '#cbd5e1';
       ctx.fillRect(328, floorY - 20, 7, 4);
-      ctx.save();
-      const baseGlow = dayInfo.phase === 'NIGHT' || isRainActive ? 0.34 : 0.18;
-      ctx.globalAlpha = baseGlow + Math.sin(this.tick * 0.08) * 0.05;
-      ctx.fillStyle = '#fef08a';
-      ctx.beginPath();
-      ctx.moveTo(327, floorY - 16);
-      ctx.lineTo(336, floorY - 16);
-      ctx.lineTo(352, floorY);
-      ctx.lineTo(306, floorY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+      if (lampOn) {
+        ctx.save();
+        const baseGlow = dayInfo.phase === 'NIGHT' || isRainActive ? 0.36 : 0.22;
+        ctx.globalAlpha = baseGlow + Math.sin(this.tick * 0.08) * 0.05;
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.moveTo(327, floorY - 16);
+        ctx.lineTo(336, floorY - 16);
+        ctx.lineTo(354, floorY);
+        ctx.lineTo(304, floorY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     } else {
       // Default: Estúdio Lofi Aconchegante com Ciclo Dia / Tarde / Pôr do Sol / Noite + Clima Adaptativo (room_cozy_desk)
       const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
