@@ -753,7 +753,7 @@ export class PixelCanvasRenderer {
         }
       }
 
-      // Check Window / Sky / Horizon hit-testing across ALL scenarios (adaptive day/night & weather)
+      // Check Window / Sky / Horizon / Cinema Screen hit-testing across ALL scenarios
       if (!this.hoveredFurnitureId && !this.hoveredWorkSign && !this.editFurnitureMode) {
         const skinId = this.room.roomSkinId || 'room_cozy_desk';
         const isCozyWin =
@@ -765,6 +765,8 @@ export class PixelCanvasRenderer {
           y >= 24 &&
           y <= 114 &&
           ((x >= 20 && x <= 114) || (x >= 132 && x <= 226) || (x >= 244 && x <= 338));
+        const isCinemaScreen =
+          skinId === 'room_cinema' && x >= 68 && x <= 292 && y >= 14 && y <= 98;
         const isOutdoorSky =
           (skinId === 'room_dense_forest' ||
             skinId === 'room_forest_campfire' ||
@@ -774,7 +776,7 @@ export class PixelCanvasRenderer {
           y >= 2 &&
           y <= 44;
 
-        if (isCozyWin || isOfficeWin || isTrainWin || isOutdoorSky) {
+        if (isCozyWin || isOfficeWin || isTrainWin || isCinemaScreen || isOutdoorSky) {
           this.hoveredWindow = true;
           const dayInfo = getLocalDayTimeInfo();
           const weatherTags: string[] = [];
@@ -783,8 +785,11 @@ export class PixelCanvasRenderer {
           if (soundEngine.isAmbientActive('brown_noise')) weatherTags.push('🍃 Brisa');
           if (soundEngine.isAmbientActive('coffee')) weatherTags.push('☕ Aroma de Café');
           const weatherSuffix = weatherTags.length > 0 ? ` • ${weatherTags.join(' + ')}` : '';
-          const viewName =
-            isCozyWin || isOfficeWin || isTrainWin ? 'Janela' : 'Clima do Cenário';
+          const viewName = isCinemaScreen
+            ? '🍿 Telão do Cinema'
+            : isCozyWin || isOfficeWin || isTrainWin
+              ? 'Janela'
+              : 'Clima do Cenário';
           label = `${dayInfo.icon} ${viewName} (${dayInfo.timeStr} • ${dayInfo.label}${weatherSuffix}) — Clique para admirar`;
         }
       }
@@ -2838,6 +2843,277 @@ export class PixelCanvasRenderer {
         ctx.fill();
         ctx.restore();
       }
+    } else if (skinId === 'room_cinema') {
+      // 🍿 Sala de Cinema VIP (Telão Animado Adaptativo ao Horário/Clima, Cortinas de Veludo Vermelho, Feixe de Projetor, Poltronas e Pipoqueira)
+      const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
+      wallGrad.addColorStop(0, '#0f050a');
+      wallGrad.addColorStop(0.55, '#1c0811');
+      wallGrad.addColorStop(1, '#2b0b18');
+      ctx.fillStyle = wallGrad;
+      ctx.fillRect(0, 0, W, floorY);
+
+      // Painéis acústicos verticais nas paredes laterais + arandelas douradas (sconces)
+      ctx.fillStyle = '#14050b';
+      for (let px = 8; px < W; px += 28) {
+        if (px < 48 || px > 304) {
+          ctx.fillRect(px, 14, 16, floorY - 28);
+        }
+      }
+
+      // Arandelas de luz âmbar suave nas paredes esquerda e direita
+      const sconceXs = [36, 324];
+      for (const sx of sconceXs) {
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(sx - 2, 54, 5, 6);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(sx - 3, 59, 7, 3);
+        ctx.save();
+        ctx.globalAlpha = 0.16 + Math.sin(this.tick * 0.08 + sx) * 0.04;
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.moveTo(sx - 2, 54);
+        ctx.lineTo(sx + 3, 54);
+        ctx.lineTo(sx + 12, 34);
+        ctx.lineTo(sx - 11, 34);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Placa iluminada "EXIT" verde na parede esquerda (x: 12, y: 24)
+      ctx.fillStyle = '#064e3b';
+      ctx.fillRect(10, 22, 22, 10);
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(10.5, 22.5, 21, 9);
+      ctx.fillStyle = '#86efac';
+      ctx.fillRect(13, 25, 3, 4);
+      ctx.fillRect(18, 25, 3, 4);
+      ctx.fillRect(23, 25, 2, 4);
+      ctx.fillRect(27, 25, 3, 4);
+
+      // Moldura externa do Grande Telão de Cinema (x: 68..292, y: 16..96)
+      const scrX = 68;
+      const scrY = 16;
+      const scrW = 224;
+      const scrH = 80;
+
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(scrX - 4, scrY - 4, scrW + 8, scrH + 8);
+
+      // Cena do Filme em Exibição no Telão (Adapta-se ao Horário Real e ao Clima!)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(scrX, scrY, scrW, scrH);
+      ctx.clip();
+
+      const filmGrad = ctx.createLinearGradient(0, scrY, 0, scrY + scrH);
+      if (isRainActive) {
+        // Sessão Noir Chuvosa
+        filmGrad.addColorStop(0, '#0f172a');
+        filmGrad.addColorStop(0.6, '#1e293b');
+        filmGrad.addColorStop(1, '#334155');
+      } else if (dayInfo.phase === 'DAY') {
+        // Sessão Matinê — Aventura Solar nas Montanhas
+        filmGrad.addColorStop(0, '#0284c7');
+        filmGrad.addColorStop(0.6, '#38bdf8');
+        filmGrad.addColorStop(1, '#bae6fd');
+      } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+        // Sessão Fim de Tarde — Clássico Outrun / Pôr do Sol
+        filmGrad.addColorStop(0, '#4c1d95');
+        filmGrad.addColorStop(0.5, '#ea580c');
+        filmGrad.addColorStop(1, '#fde047');
+      } else {
+        // Sessão da Meia-Noite — Odisséia Espacial Sci-Fi
+        filmGrad.addColorStop(0, '#020617');
+        filmGrad.addColorStop(0.6, '#1e1b4b');
+        filmGrad.addColorStop(1, '#312e81');
+      }
+      ctx.fillStyle = filmGrad;
+      ctx.fillRect(scrX, scrY, scrW, scrH);
+
+      if (isRainActive) {
+        // Filme Noir: silhueta de prédios + chuva cinematográfica no telão
+        ctx.fillStyle = '#090d16';
+        for (let bx = scrX + 10; bx < scrX + scrW - 20; bx += 34) {
+          const bh = 28 + ((bx * 7) % 26);
+          ctx.fillRect(bx, scrY + scrH - 8 - bh, 26, bh);
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(bx + 6, scrY + scrH - bh, 4, 5);
+          ctx.fillRect(bx + 14, scrY + scrH - bh + 10, 4, 5);
+          ctx.fillStyle = '#090d16';
+        }
+        this.drawWindowRainAndDroplets(ctx, scrX, scrY + 6, scrW, scrH - 14);
+      } else if (dayInfo.phase === 'DAY') {
+        // Matinê: Sol brilhante, montanhas verdes/azuis e aeronave pixelada voando pelo telão
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(scrX + 176, scrY + 14, 16, 16);
+        // Montanhas ao fundo no filme
+        ctx.fillStyle = '#15803d';
+        ctx.fillRect(scrX, scrY + 58, scrW, 24);
+        ctx.fillStyle = '#166534';
+        ctx.fillRect(scrX + 40, scrY + 50, 70, 12);
+        ctx.fillRect(scrX + 140, scrY + 52, 64, 10);
+        // Nave/dirigível heróico cruzando o telão
+        const shipX = scrX + ((this.tick * 1.4) % (scrW + 30)) - 15;
+        const shipY = scrY + 34 + Math.round(Math.sin(this.tick * 0.08) * 3);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(Math.round(shipX), shipY, 18, 6);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(Math.round(shipX) - 4, shipY + 1, 5, 4);
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(Math.round(shipX) + 12, shipY + 1, 4, 3);
+      } else if (dayInfo.phase === 'SUNSET' || dayInfo.phase === 'DAWN') {
+        // Pôr do Sol Synthwave: Grande sol listrado no centro do telão + horizonte retro
+        const sunCx = scrX + Math.round(scrW / 2);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(sunCx - 22, scrY + 22, 44, 36);
+        ctx.fillStyle = '#fb923c';
+        ctx.fillRect(sunCx - 26, scrY + 30, 52, 22);
+        // Scanlines cortando o sol synthwave
+        ctx.fillStyle = '#581c87';
+        for (let sy = scrY + 38; sy < scrY + 58; sy += 5) {
+          ctx.fillRect(sunCx - 28, sy, 56, 2);
+        }
+        // Horizonte cyber-grid na base do filme
+        ctx.fillStyle = '#1e1b4b';
+        ctx.fillRect(scrX, scrY + 58, scrW, 22);
+        ctx.fillStyle = '#ec4899';
+        ctx.fillRect(scrX, scrY + 58, scrW, 2);
+      } else {
+        // Sessão da Meia-Noite Sci-Fi: Estrelas em movimento, Planeta com Anéis e Nave Espacial
+        for (let s = 0; s < 20; s++) {
+          const sx = scrX + ((s * 31 + Math.floor(this.tick * 0.8)) % scrW);
+          const sy = scrY + 10 + ((s * 17) % (scrH - 22));
+          ctx.fillStyle = s % 3 === 0 ? '#38bdf8' : '#f8fafc';
+          ctx.fillRect(sx, sy, 2, 2);
+        }
+        // Planeta com anéis estilo Saturno no telão
+        ctx.fillStyle = '#a855f7';
+        ctx.fillRect(scrX + 154, scrY + 24, 20, 20);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(scrX + 144, scrY + 33, 40, 3);
+        // Nave espacial cruzando a galáxia
+        const cruiserX = scrX + ((this.tick * 1.6) % (scrW + 24)) - 12;
+        const cruiserY = scrY + 46 + Math.round(Math.sin(this.tick * 0.09) * 3);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(Math.round(cruiserX), cruiserY, 16, 5);
+        ctx.fillStyle = '#22d3ee';
+        ctx.fillRect(Math.round(cruiserX) - 5, cruiserY + 1, 5, 3);
+      }
+
+      // Barras pretas widescreen (Letterbox Cinema) no topo e base do telão + legenda animada
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(scrX, scrY, scrW, 7);
+      ctx.fillRect(scrX, scrY + scrH - 9, scrW, 9);
+      const subW = 54 + ((this.tick >> 5) % 3) * 18;
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(scrX + Math.round((scrW - subW) / 2), scrY + scrH - 6, subW, 2);
+
+      // Flicker suave de projeção sobre a tela
+      if ((this.tick >> 2) % 5 === 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.fillRect(scrX, scrY, scrW, scrH);
+      }
+      ctx.restore();
+
+      // Borda prateada/dourada do telão (acende ao passar o mouse)
+      ctx.strokeStyle = this.hoveredWindow ? '#facc15' : '#475569';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(scrX, scrY, scrW, scrH);
+
+      // Cortinas de Veludo Vermelho nas laterais do Telão + Bambinelas no topo
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(46, 8, 24, 96);
+      ctx.fillRect(290, 8, 24, 96);
+      ctx.fillStyle = '#b91c1c';
+      for (let cx = 48; cx < 68; cx += 6) {
+        ctx.fillRect(cx, 10, 3, 92);
+      }
+      for (let cx = 292; cx < 312; cx += 6) {
+        ctx.fillRect(cx, 10, 3, 92);
+      }
+      // Bambinela superior de veludo vermelho
+      ctx.fillStyle = '#991b1b';
+      ctx.fillRect(44, 4, 272, 10);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(44, 13, 272, 2);
+      // Amarração dourada das cortinas
+      ctx.fillRect(46, 62, 22, 3);
+      ctx.fillRect(292, 62, 22, 3);
+
+      // Cabine de Projeção no topo central + Feixe de Luz do Projetor atravessando a sala
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(172, 0, 16, 8);
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(177, 2, 6, 4);
+      ctx.save();
+      ctx.fillStyle =
+        dayInfo.phase === 'SUNSET'
+          ? 'rgba(251, 146, 60, 0.11)'
+          : dayInfo.phase === 'NIGHT'
+            ? 'rgba(168, 85, 247, 0.11)'
+            : 'rgba(186, 230, 253, 0.11)';
+      ctx.beginPath();
+      ctx.moveTo(176, 6);
+      ctx.lineTo(184, 6);
+      ctx.lineTo(scrX + scrW, scrY + scrH);
+      ctx.lineTo(scrX, scrY + scrH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Reflexo luminoso do Telão sobre o piso da Sala de Cinema
+      ctx.save();
+      ctx.fillStyle =
+        dayInfo.phase === 'SUNSET'
+          ? 'rgba(251, 146, 60, 0.10)'
+          : dayInfo.phase === 'NIGHT'
+            ? 'rgba(56, 189, 248, 0.08)'
+            : 'rgba(254, 249, 195, 0.09)';
+      ctx.beginPath();
+      ctx.moveTo(scrX, scrY + scrH);
+      ctx.lineTo(scrX + scrW, scrY + scrH);
+      ctx.lineTo(scrX + scrW + 26, floorY);
+      ctx.lineTo(scrX - 26, floorY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Fileira de Poltronas VIP Vermelhas ao fundo da sala (y: floorY - 22 .. floorY)
+      for (let seatX = 56; seatX <= 276; seatX += 36) {
+        // Encosto arredondado de veludo vermelho
+        ctx.fillStyle = '#7f1d1d';
+        ctx.fillRect(seatX, floorY - 22, 26, 22);
+        ctx.fillStyle = '#b91c1c';
+        ctx.fillRect(seatX + 2, floorY - 20, 22, 14);
+        // Braços da poltrona + porta-copos
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(seatX - 2, floorY - 12, 4, 12);
+        ctx.fillRect(seatX + 24, floorY - 12, 4, 12);
+      }
+
+      // 🍿 Pipoqueira Vintage Iluminada à direita (x: 316, y: floorY - 46)
+      ctx.fillStyle = '#b91c1c';
+      ctx.fillRect(316, floorY - 22, 26, 22);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(315, floorY - 46, 28, 5);
+      ctx.fillRect(316, floorY - 22, 26, 2);
+      // Vitrine de vidro aquecida com pipocas pulando
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.28)';
+      ctx.fillRect(318, floorY - 41, 22, 19);
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(317.5, floorY - 41.5, 23, 19.5);
+      // Monte de pipoca dourada + grãos pulando
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(320, floorY - 28, 18, 6);
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(322, floorY - 31, 14, 4);
+      const popY = (this.tick >> 2) % 5;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(324, floorY - 34 - popY, 3, 3);
+      ctx.fillRect(331, floorY - 32 - ((popY + 2) % 5), 3, 3);
     } else {
       // Default: Estúdio Lofi Aconchegante com Ciclo Dia / Tarde / Pôr do Sol / Noite + Clima Adaptativo (room_cozy_desk)
       const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
@@ -3238,6 +3514,17 @@ export class PixelCanvasRenderer {
       ctx.fillStyle =
         dayInfo.phase === 'SUNSET' && !isRainActive ? '#fb923c' : '#38bdf8';
       ctx.fillRect(0, floorY, W, 3);
+    } else if (skinId === 'room_cinema') {
+      // Carpete aveludado bordô de Sala de Cinema + Fitas de LED guia de corredor
+      ctx.fillStyle = '#240914';
+      ctx.fillRect(0, floorY, W, fh);
+      ctx.fillStyle = '#4c0519';
+      ctx.fillRect(0, floorY, W, 4);
+      // Luzinhas de LED âmbar indicando o corredor no piso do cinema
+      ctx.fillStyle = '#facc15';
+      for (let lx = 16; lx < W; lx += 36) {
+        ctx.fillRect(lx, floorY + 1, 8, 2);
+      }
     } else {
       // Cozy wooden planks
       ctx.fillStyle = '#451a03';

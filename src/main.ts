@@ -1175,11 +1175,20 @@ class PocketCornerApp {
       room_dense_forest: 165,
       room_rainy_rooftop: 185,
       room_underwater: 180,
+      room_cinema: 180,
     };
     const winX = targetXMap[skinId] ?? 110;
 
     let thought = dayInfo.windowThought;
-    if (isRain) {
+    if (skinId === 'room_cinema') {
+      thought = isRain
+        ? '🍿 Assistindo a um clássico Film Noir de chuva no telão!'
+        : dayInfo.phase === 'NIGHT'
+          ? '🍿 Curtindo a sessão da meia-noite de Sci-Fi espacial no cinema!'
+          : dayInfo.phase === 'SUNSET'
+            ? '🍿 Curtindo a sessão de entardecer Synthwave no telão VIP!'
+            : '🍿 Assistindo à matinê de aventura com pipoca quentinha!';
+    } else if (isRain) {
       thought = '🌧️ Ouvindo o barulhinho bom de chuva no cenário...';
     } else if (isFire) {
       thought = '🔥 Aproveitando o calorzinho aconchegante da lareira...';
@@ -1346,6 +1355,21 @@ class PocketCornerApp {
         thought: '🐠 Observando os peixes no recife...',
         weight: 3,
       });
+    } else if (skinId === 'room_cinema') {
+      candidates.push(
+        {
+          x: 180,
+          activity: 'COFFEE',
+          thought: '🍿 Assistindo à sessão no telão do cinema!',
+          weight: 3,
+        },
+        {
+          x: 318,
+          activity: 'COFFEE',
+          thought: '🍿 Pegando pipoca quentinha na pipoqueira!',
+          weight: 2,
+        }
+      );
     }
 
     // 3. Passeio livre (dar alguns passinhos pela sala para esticar as pernas)

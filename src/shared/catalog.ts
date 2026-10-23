@@ -597,6 +597,19 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     previewColor: '#7c2d12',
   },
   {
+    id: 'room_cinema',
+    name: 'Sala de Cinema VIP',
+    category: 'room_skin',
+    rarity: 'EPIC',
+    currency: 'COINS',
+    price: 240,
+    inGachapon: true,
+     description:
+      'Telão de cinema com projeção animada que muda conforme o horário, cortinas de veludo vermelho, feixe de projetor, poltronas VIP e pipoqueira.',
+    icon: '🍿',
+    previewColor: '#991b1b',
+  },
+  {
     id: 'room_beco_rapariga',
     name: 'Beco da Rapariga',
     category: 'room_skin',
