@@ -8,6 +8,7 @@ import {
   PET_BREED_OPTIONS,
   STARTER_INVENTORY_IDS,
   getCosmeticById,
+  getFishColorOption,
   getPetBreedOption,
   getRealMoneyPackageById,
   parseHumanVariant,
@@ -617,9 +618,15 @@ export class PocketStore {
       safeEquipped.companion_pet_variant = '';
     }
 
-    safeEquipped.avatar_body_variant = parseHumanVariant(
-      user.humanVariant || user.equipped.avatar_body_variant
-    ).variantId;
+    if (safeEquipped.avatar_body === 'body_fish') {
+      safeEquipped.avatar_body_variant = getFishColorOption(
+        user.fishVariant || user.equipped.avatar_body_variant
+      ).id;
+    } else {
+      safeEquipped.avatar_body_variant = parseHumanVariant(
+        user.humanVariant || user.equipped.avatar_body_variant
+      ).variantId;
+    }
 
     this.sessionCosmeticsCache.set(userId, safeEquipped);
     return safeEquipped;
@@ -889,6 +896,40 @@ export class PocketStore {
     return {
       ok: true,
       message: `🧑 Humano Cozy atualizado: Pele ${parsed.skin.name} • Roupa ${parsed.hoodie.name}!`,
+    };
+  }
+
+  public setFishVariant(
+    userId: string,
+    variantId: string
+  ): { ok: boolean; message: string } {
+    const user = this.db.users[userId];
+    if (!user) return { ok: false, message: 'Usuário não encontrado.' };
+
+    if (!this.verifyOwnership(userId, 'body_fish')) {
+      return { ok: false, message: 'Adquira o Peixinho Tropical primeiro para escolher a cor!' };
+    }
+
+    const chosenFish = getFishColorOption(variantId);
+    user.fishVariant = chosenFish.id;
+    user.equipped.avatar_body = 'body_fish';
+    user.equipped.avatar_body_variant = chosenFish.id;
+
+    this.saveDB();
+    const updatedLoadout = this.loadSessionCosmetics(userId);
+
+    const currentRoomHostId = this.userCurrentRoom.get(userId);
+    if (currentRoomHostId) {
+      const room = this.rooms.get(currentRoomHostId);
+      const playerState = room?.players.get(userId);
+      if (playerState) {
+        playerState.equipped = updatedLoadout;
+      }
+    }
+
+    return {
+      ok: true,
+      message: `🐠 Peixinho Tropical atualizado: Cor "${chosenFish.name}"!`,
     };
   }
 

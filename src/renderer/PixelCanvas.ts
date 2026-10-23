@@ -1,5 +1,6 @@
 import {
   getCosmeticById,
+  getFishColorOption,
   getFurnitureColorOption,
   getPetBreedOption,
   parseHumanVariant,
@@ -3826,23 +3827,26 @@ export class PixelCanvasRenderer {
       ctx.fillRect(-6, -4, 4, 4);
       ctx.fillRect(2, -4, 4, 4);
     } else if (bodyId === 'body_fish') {
-      // 🐠 Peixinho Tropical
+      // 🐠 Peixinho Tropical (Com cores personalizáveis!)
+      const fishColor = getFishColorOption(p.equipped.avatar_body_variant);
       const finWave = Math.round(Math.sin(this.tick * 0.2) * 2);
       // Tail fin
-      ctx.fillStyle = '#facc15';
+      ctx.fillStyle = fishColor.finColor;
       ctx.fillRect(-dir * 14, baseTop + 9 + finWave, 6, 10);
-      // Tropical blue & orange striped body
-      ctx.fillStyle = '#0ea5e9';
+      // Striped body
+      ctx.fillStyle = fishColor.bodyColor;
       ctx.fillRect(-10, baseTop + 6, 20, 16);
-      ctx.fillStyle = '#f97316';
+      ctx.fillStyle = fishColor.stripeColor;
       ctx.fillRect(-4, baseTop + 6, 4, 16);
       ctx.fillRect(3, baseTop + 6, 3, 16);
       // Top dorsal fin
-      ctx.fillStyle = '#facc15';
+      ctx.fillStyle = fishColor.finColor;
       ctx.fillRect(-5, baseTop + 2, 10, 4);
-      // Cute bubble & eye
+      // Cute bubble & eye with shine
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(dir * 5, baseTop + 10, 3, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(dir * 5, baseTop + 10, 1, 1);
       ctx.fillStyle = '#bae6fd';
       ctx.fillRect(dir * 11, baseTop + 4 - ((this.tick >> 3) % 6), 3, 3);
     } else if (bodyId === 'body_frog') {
@@ -4954,6 +4958,7 @@ export class PixelCanvasRenderer {
     displayName: string;
     equipped: RoomPlayerState['equipped'];
     humanVariant?: string;
+    fishVariant?: string;
     petVariants?: Record<string, string>;
   }) {
     if (!this.previewCanvas) return;
@@ -4969,6 +4974,10 @@ export class PixelCanvasRenderer {
     this.drawFloorStrip(ctx, profile.equipped.room_skin || 'room_cozy_desk', W, H, floorY);
 
     const petId = profile.equipped.companion_pet;
+    const bodyVariant =
+      profile.equipped.avatar_body === 'body_fish'
+        ? profile.fishVariant || profile.equipped.avatar_body_variant
+        : profile.humanVariant || profile.equipped.avatar_body_variant;
     const mockPlayer: RoomPlayerState = {
       userId: '__preview__',
       username: profile.username,
@@ -4981,7 +4990,7 @@ export class PixelCanvasRenderer {
       idleActivity: 'COFFEE',
       equipped: {
         ...profile.equipped,
-        avatar_body_variant: profile.humanVariant || profile.equipped.avatar_body_variant,
+        avatar_body_variant: bodyVariant,
         companion_pet_variant: petId
           ? profile.petVariants?.[petId] || profile.equipped.companion_pet_variant
           : undefined,

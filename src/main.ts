@@ -2,6 +2,7 @@ import './style.css';
 import { io, Socket } from 'socket.io-client';
 import {
   COSMETIC_CATALOG,
+  FISH_COLOR_OPTIONS,
   FURNITURE_COLOR_PALETTE,
   GACHAPON_COST_COINS,
   HUMAN_HOODIE_COLORS,
@@ -9,6 +10,7 @@ import {
   PET_BREED_OPTIONS,
   REAL_MONEY_PACKAGES,
   getCosmeticById,
+  getFishColorOption,
   getPetBreedOption,
   parseHumanVariant,
 } from './shared/catalog';
@@ -3854,6 +3856,73 @@ class PocketCornerApp {
       `;
     }
 
+    if (item.id === 'body_fish') {
+      const currentFish = getFishColorOption(
+        this.profile!.fishVariant ||
+          (isEquipped ? this.profile!.equipped.avatar_body_variant : undefined)
+      );
+
+      return `
+        <div
+          class="item-card pet-item-card ${isEquipped ? 'equipped' : ''}"
+          title="${this.escapeHtml(item.description)}"
+          style="flex-direction: column; align-items: stretch; gap: 8px;"
+        >
+          <div style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+              <div class="item-icon" style="font-size: 1.45rem;">${item.icon}</div>
+              <div class="item-info">
+                <div class="item-name">
+                  ${this.escapeHtml(item.name)}
+                  <span class="rarity-badge rarity-${item.rarity}">${rarityLabel}</span>
+                  <span class="rarity-badge" style="background: rgba(56, 189, 248, 0.16); color: #38bdf8;">🎨 ${FISH_COLOR_OPTIONS.length} Cores</span>
+                  ${adminPriceTag}
+                </div>
+                <div class="item-sub">
+                  🐠 Escolha livremente entre ${FISH_COLOR_OPTIONS.length} cores tropicais!
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              ${
+                owned
+                  ? isEquipped
+                    ? `<span class="btn btn-sm active-toggle">Em uso</span>`
+                    : `<button class="btn btn-sm btn-primary" data-equip-item="${item.id}">Usar</button>`
+                  : `<button class="btn btn-sm btn-gold" data-buy-item="${item.id}">
+                      ${item.price} ${currencyIcon}
+                    </button>`
+              }
+            </div>
+          </div>
+
+          <div class="pet-breed-selector-row">
+            <span class="pet-breed-label">🐠 Cor do Peixe:</span>
+            <div class="pet-breed-chips">
+              ${FISH_COLOR_OPTIONS.map((fish) => {
+                const selected = currentFish.id === fish.id;
+                return `
+                  <button
+                    class="pet-breed-chip ${selected ? 'active' : ''}"
+                    ${
+                      owned
+                        ? `data-fish-variant="${fish.id}"`
+                        : `disabled title="Compre o Peixinho Tropical (${item.price} 🪙) para escolher a cor ${this.escapeHtml(fish.name)}"`
+                    }
+                  >
+                    <span class="pet-breed-dot" style="background: ${fish.bodyColor}; border-color: ${fish.stripeColor};"></span>
+                    <span>${this.escapeHtml(fish.name)}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="hover-desc-tooltip">${this.escapeHtml(item.description)}</div>
+        </div>
+      `;
+    }
+
     return `
       <div class="item-card ${isEquipped || placedInstance ? 'equipped' : ''}" title="${this.escapeHtml(item.description)}">
         <div class="item-icon">${item.icon}</div>
@@ -4038,6 +4107,28 @@ class PocketCornerApp {
           }
         }
         this.socket.emit('avatar:set_human_variant', { variantId });
+      });
+    });
+
+    this.modalRootEl.querySelectorAll('[data-fish-variant]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const variantId = (btn as HTMLElement).dataset.fishVariant!;
+        if (this.profile) {
+          this.profile.fishVariant = variantId;
+          this.profile.equipped.avatar_body = 'body_fish';
+          this.profile.equipped.avatar_body_variant = variantId;
+          const meInRoom = this.room?.players.find((p) => p.userId === this.profile?.id);
+          if (meInRoom) {
+            meInRoom.equipped.avatar_body = 'body_fish';
+            meInRoom.equipped.avatar_body_variant = variantId;
+          }
+          if (this.activeModal === 'SHOP') {
+            this.renderShopPopup();
+          } else if (this.activeModal === 'BACKPACK') {
+            this.renderBackpackPopup();
+          }
+        }
+        this.socket.emit('avatar:set_fish_variant', { variantId });
       });
     });
 

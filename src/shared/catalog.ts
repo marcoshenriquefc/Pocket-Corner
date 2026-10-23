@@ -75,7 +75,8 @@ export const COSMETIC_CATALOG: CosmeticItem[] = [
     currency: 'COINS',
     price: 150,
     inGachapon: true,
-    description: 'Peixinho colorido com barbatanas animadas e bolhas de ar.',
+    description:
+      'Peixinho colorido com barbatanas animadas e bolhas de ar. Escolha livremente entre 8 cores tropicais!',
     icon: '🐠',
     previewColor: '#0ea5e9',
   },
@@ -1319,5 +1320,36 @@ export function parseHumanVariant(variantStr?: string): {
     variantId: `${foundSkin.id}:${foundHoodie.id}`,
   };
 }
+
+// ==========================================
+// 13. PERSONALIZAÇÃO DE CORES DO PEIXINHO TROPICAL (body_fish)
+// ==========================================
+export interface FishColorOption {
+  id: string;
+  name: string;
+  bodyColor: string;
+  stripeColor: string;
+  finColor: string;
+}
+
+export const FISH_COLOR_OPTIONS: FishColorOption[] = [
+  { id: 'tropical_blue', name: 'Tropical Azul', bodyColor: '#0ea5e9', stripeColor: '#f97316', finColor: '#facc15' },
+  { id: 'clown_orange', name: 'Peixe-Palhaço', bodyColor: '#f97316', stripeColor: '#ffffff', finColor: '#1e293b' },
+  { id: 'goldfish', name: 'Dourado Real', bodyColor: '#eab308', stripeColor: '#fef08a', finColor: '#f97316' },
+  { id: 'betta_ruby', name: 'Betta Rubi', bodyColor: '#e11d48', stripeColor: '#fda4af', finColor: '#9f1239' },
+  { id: 'neon_purple', name: 'Neon Roxo', bodyColor: '#8b5cf6', stripeColor: '#22d3ee', finColor: '#f472b6' },
+  { id: 'emerald_reef', name: 'Esmeralda', bodyColor: '#10b981', stripeColor: '#fde047', finColor: '#059669' },
+  { id: 'koi_calico', name: 'Carpa Koi', bodyColor: '#f8fafc', stripeColor: '#ef4444', finColor: '#f59e0b' },
+  { id: 'abyss_cyan', name: 'Bioluminescente', bodyColor: '#0f172a', stripeColor: '#00f5d4', finColor: '#38bdf8' },
+];
+
+export function getFishColorOption(variantId?: string): FishColorOption {
+  if (variantId) {
+    const found = FISH_COLOR_OPTIONS.find((f) => f.id === variantId);
+    if (found) return found;
+  }
+  return FISH_COLOR_OPTIONS[0];
+}
+
 
 
