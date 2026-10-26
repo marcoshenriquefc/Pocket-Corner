@@ -542,11 +542,16 @@ export class PocketStore {
 
   private buildFriendProfilesMap(user: UserProfile): Record<string, FriendProfileSummary> {
     const map: Record<string, FriendProfileSummary> = {};
-    const ids = new Set<string>([
-      ...(user.friends || []),
-      ...(user.pendingIncomingFriends || []),
-      ...(user.pendingOutgoingFriends || []),
-    ]);
+    const isAdmin = this.isUserAdmin(user);
+    const ids = new Set<string>(
+      isAdmin
+        ? Object.keys(this.db.users).filter((uid) => uid !== user.id)
+        : [
+            ...(user.friends || []),
+            ...(user.pendingIncomingFriends || []),
+            ...(user.pendingOutgoingFriends || []),
+          ]
+    );
 
     for (const id of ids) {
       const other = this.db.users[id];

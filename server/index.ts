@@ -84,8 +84,10 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
 
   const targetRoom = store.ensureRoom(targetHostId);
 
-  // 2.2 & 6.2. Capacidade da sala: máximo 5 avatares no total (4 visitantes + 1 Host)
-  if (userId !== targetHostId && !targetRoom.players.has(userId)) {
+  const isAdminVisitor = store.isUserAdmin(user);
+
+  // 2.2 & 6.2. Capacidade da sala: máximo 5 avatares no total (4 visitantes + 1 Host), exceto Admin
+  if (!isAdminVisitor && userId !== targetHostId && !targetRoom.players.has(userId)) {
     if (targetRoom.players.size >= 5) {
       return false;
     }
@@ -860,6 +862,23 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       socket.emit('system:toast', {
         type: 'info',
         message: '🏠 Você voltou para o seu cantinho.',
+      });
+      return;
+    }
+
+    const currentVisitor = store.getUserById(userId) || user;
+    const isAdminVisitor = store.isUserAdmin(currentVisitor);
+
+    // 🛡️ Administrador pode visitar toda e qualquer sala (sem precisar de amizade, sem bloqueio de DND, Toc-Toc ou lotação)
+    if (isAdminVisitor) {
+      const currentTargetHostRoom = store.userCurrentRoom.get(targetHost.id) || targetHost.id;
+      const isTargetHostAway = currentTargetHostRoom !== targetHost.id;
+      moveUserToRoom(userId, targetHost.id, true);
+      socket.emit('system:toast', {
+        type: 'success',
+        message: isTargetHostAway
+          ? `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username}) — Host saiu para visitar outra sala.`
+          : `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username})!`,
       });
       return;
     }

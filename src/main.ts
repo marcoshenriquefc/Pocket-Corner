@@ -695,6 +695,14 @@ class PocketCornerApp {
                 <button class="btn btn-sm btn-primary" id="floating-add-friend-btn" title="Enviar convite de amizade pelo @nick">
                   📨
                 </button>
+                <button
+                  class="btn btn-sm btn-gold"
+                  id="floating-admin-visit-btn"
+                  title="🛡️ Admin: Visitar qualquer sala pelo @nick"
+                  style="display: none;"
+                >
+                  🛡️
+                </button>
               </div>
             </div>
           </div>
@@ -969,6 +977,16 @@ class PocketCornerApp {
     };
 
     document.getElementById('floating-add-friend-btn')?.addEventListener('click', sendFloatingFriendInvite);
+    document.getElementById('floating-admin-visit-btn')?.addEventListener('click', () => {
+      if (!this.profile?.isAdmin) return;
+      const inp = document.getElementById('floating-add-friend-input') as HTMLInputElement | null;
+      const val = inp?.value.trim() || '';
+      if (!val) return;
+      const cleanVal = val.replace(/^@+/, '').trim();
+      if (!cleanVal) return;
+      this.socket.emit('room:visit', { targetUserId: cleanVal });
+      if (inp) inp.value = '';
+    });
     document.getElementById('floating-add-friend-input')?.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Enter') {
         e.preventDefault();
@@ -2407,8 +2425,27 @@ class PocketCornerApp {
       copyNickBtn.textContent = `📋 @${this.profile.username}`;
     }
 
+    const adminVisitBtn = document.getElementById('floating-admin-visit-btn');
+    if (adminVisitBtn) {
+      adminVisitBtn.style.display = this.profile.isAdmin ? 'inline-flex' : 'none';
+    }
+
+    const isAdmin = Boolean(this.profile.isAdmin);
     const friendsIds = this.profile.friends || [];
-    const onlineFriendsCount = friendsIds.filter((fid) =>
+    const allVisibleIds = isAdmin
+      ? Array.from(
+          new Set([
+            ...friendsIds,
+            ...this.directory
+              .filter((d) => d.userId !== this.profile!.id)
+              .map((d) => d.userId),
+            ...Object.keys(this.profile.friendProfiles || {}).filter(
+              (id) => id !== this.profile!.id
+            ),
+          ])
+        )
+      : friendsIds;
+    const onlineFriendsCount = allVisibleIds.filter((fid) =>
       this.directory.some((d) => d.userId === fid)
     ).length;
     const pendingInCount = this.profile.pendingIncomingFriends?.length || 0;
@@ -2417,10 +2454,10 @@ class PocketCornerApp {
 
     headerEl.innerHTML = `
       <div class="floating-friends-header-title">
-        <span>👥</span>
-        <span>Amizades</span>
-        <span class="floating-friends-count" title="${onlineFriendsCount} amigo(s) online de ${friendsIds.length}">
-          ${onlineFriendsCount}/${friendsIds.length}
+        <span>${isAdmin ? '🛡️' : '👥'}</span>
+        <span>${isAdmin ? 'Amizades & Salas' : 'Amizades'}</span>
+        <span class="floating-friends-count" title="${onlineFriendsCount} online de ${allVisibleIds.length}">
+          ${onlineFriendsCount}/${allVisibleIds.length}
         </span>
       </div>
       <div class="floating-friends-header-actions">
@@ -2463,19 +2500,35 @@ class PocketCornerApp {
     const listEl = document.getElementById('floating-friends-list');
     if (!listEl || !this.profile) return;
 
+    const isAdmin = Boolean(this.profile.isAdmin);
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
     const pendingIn = this.profile.pendingIncomingFriends || [];
     const pendingOut = this.profile.pendingOutgoingFriends || [];
     const friendsIds = this.profile.friends || [];
+    const friendsSet = new Set(friendsIds);
+    const targetIds = isAdmin
+      ? Array.from(
+          new Set([
+            ...friendsIds,
+            ...this.directory
+              .filter((d) => d.userId !== this.profile!.id)
+              .map((d) => d.userId),
+            ...Object.keys(this.profile.friendProfiles || {}).filter(
+              (id) => id !== this.profile!.id
+            ),
+          ])
+        )
+      : friendsIds;
     const q = this.friendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
 
-    const enrichedFriends = friendsIds
+    const enrichedFriends = targetIds
       .map((fid) => {
         const meta = this.resolveFriendMeta(fid);
         const dirEntry = this.directory.find((d) => d.userId === fid);
         return {
           ...meta,
           dirEntry,
+          isConfirmedFriend: friendsSet.has(fid),
           isOnline: Boolean(dirEntry || meta.isOnline),
           hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
           workStatus: dirEntry?.workStatus || '',
@@ -2492,6 +2545,7 @@ class PocketCornerApp {
       })
       .sort((a, b) => {
         if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        if (a.isConfirmedFriend !== b.isConfirmedFriend) return a.isConfirmedFriend ? -1 : 1;
         return a.displayName.localeCompare(b.displayName, 'pt-BR');
       });
 
@@ -2538,7 +2592,7 @@ class PocketCornerApp {
       }
 
       ${
-        friendsIds.length === 0
+        targetIds.length === 0
           ? `<div class="floating-friends-empty">
               <div>🤝 Você ainda não tem amigos na lista.</div>
               <div style="margin-top: 3px; font-size: 0.66rem; color: var(--text-muted);">
@@ -2547,7 +2601,7 @@ class PocketCornerApp {
             </div>`
           : enrichedFriends.length === 0
             ? `<div class="floating-friends-empty">
-                🔍 Nenhum amigo encontrado para "${this.escapeHtml(this.friendsFilterQuery)}".
+                🔍 Nenhum amigo ou sala encontrado para "${this.escapeHtml(this.friendsFilterQuery)}".
               </div>`
             : enrichedFriends
                 .map((friend) => {
@@ -2582,6 +2636,7 @@ class PocketCornerApp {
                         <div class="floating-friend-info">
                           <div class="floating-friend-name" title="${this.escapeHtml(friend.displayName)} (@${this.escapeHtml(friend.username)})">
                             ${this.escapeHtml(friend.displayName)}
+                            ${!friend.isConfirmedFriend && isAdmin ? `<span style="font-size: 0.6rem; color: #facc15; margin-left: 3px;">🛡️ Sala</span>` : ''}
                           </div>
                           <div class="floating-friend-sub" title="@${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}">
                             @${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}
@@ -2595,8 +2650,8 @@ class PocketCornerApp {
                             : friend.isOnline && friend.hostStatus === 'DND'
                               ? `<button class="btn btn-sm btn-gold" data-float-drop="${this.escapeHtml(friend.userId)}" title="Modo DND — Deixar café com Post-it">📫</button>
                                  <button class="btn btn-sm btn-primary" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">🚀</button>`
-                              : `<button class="btn btn-sm ${friend.isOnline ? 'btn-primary' : ''}" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">
-                                  ${friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                              : `<button class="btn btn-sm ${friend.isOnline || isAdmin ? 'btn-primary' : ''}" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">
+                                  ${!isAdmin && friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
                                 </button>`
                         }
                       </div>
@@ -3748,19 +3803,35 @@ class PocketCornerApp {
       this.room?.players.filter((p) => p.userId !== this.profile?.id) || [];
 
     const totalPending = pendingIn.length + pendingOut.length;
+    const isAdmin = Boolean(this.profile.isAdmin);
     const friendsList = this.profile.friends || [];
-    const onlineFriendsCount = friendsList.filter((fid) =>
+    const friendsSet = new Set(friendsList);
+    const popupTargetIds = isAdmin
+      ? Array.from(
+          new Set([
+            ...friendsList,
+            ...this.directory
+              .filter((d) => d.userId !== this.profile!.id)
+              .map((d) => d.userId),
+            ...Object.keys(this.profile.friendProfiles || {}).filter(
+              (id) => id !== this.profile!.id
+            ),
+          ])
+        )
+      : friendsList;
+    const onlineFriendsCount = popupTargetIds.filter((fid) =>
       this.directory.some((d) => d.userId === fid)
     ).length;
 
     const filterQ = this.popupFriendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
-    const enrichedPopupFriends = friendsList
+    const enrichedPopupFriends = popupTargetIds
       .map((fid) => {
         const meta = this.resolveFriendMeta(fid);
         const dirEntry = this.directory.find((d) => d.userId === fid);
         return {
           ...meta,
           dirEntry,
+          isConfirmedFriend: friendsSet.has(fid),
           isOnline: Boolean(dirEntry || meta.isOnline),
           hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
           workStatus: dirEntry?.workStatus || '',
@@ -3778,13 +3849,14 @@ class PocketCornerApp {
       })
       .sort((a, b) => {
         if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        if (a.isConfirmedFriend !== b.isConfirmedFriend) return a.isConfirmedFriend ? -1 : 1;
         return a.displayName.localeCompare(b.displayName, 'pt-BR');
       });
 
     this.mountPopupWindow(`
           <div class="popup-header">
             <div class="popup-title">
-              <span>👥</span>
+              <span>${isAdmin ? '🛡️' : '👥'}</span>
               <span>Amizades & Minha Sala</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -3795,7 +3867,7 @@ class PocketCornerApp {
 
           <div class="popup-tabs">
             <button class="popup-tab ${this.friendsTab === 'ONLINE' ? 'active' : ''}" data-friends-tab="ONLINE">
-              🤝 Meus Amigos (${onlineFriendsCount}/${friendsList.length})
+              ${isAdmin ? '🛡️ Amigos & Todas as Salas' : '🤝 Meus Amigos'} (${onlineFriendsCount}/${popupTargetIds.length})
             </button>
             <button class="popup-tab ${this.friendsTab === 'REQUESTS' ? 'active' : ''}" data-friends-tab="REQUESTS">
               📨 Amizades Pendentes ${totalPending > 0 ? `(${totalPending})` : ''}
@@ -3815,7 +3887,13 @@ class PocketCornerApp {
                       <div class="item-name">
                         ➕ Convidar Amigo pelo @nick • <span style="font-weight: 500; font-size: 0.72rem; color: var(--text-secondary);">Seu nick: <strong style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</strong></span>
                       </div>
-                      <div class="item-sub">Apenas seus amigos aparecem na lista. Envie convite pelo @nick de identificação:</div>
+                      <div class="item-sub">
+                        ${
+                          isAdmin
+                            ? '🛡️ Modo Admin: Você vê e pode visitar toda e qualquer sala diretamente!'
+                            : 'Apenas seus amigos aparecem na lista. Envie convite pelo @nick de identificação:'
+                        }
+                      </div>
                     </div>
                     <div style="display: flex; gap: 6px; flex: 1; min-width: 240px;">
                       <input
@@ -3826,6 +3904,11 @@ class PocketCornerApp {
                         placeholder="Digite o @nick do amigo (ex: @Rick)..."
                       />
                       <button class="btn btn-sm btn-primary" id="btn-add-friend">📨 Convidar</button>
+                      ${
+                        isAdmin
+                          ? `<button class="btn btn-sm btn-gold" id="btn-admin-visit-nick" title="🛡️ Admin: Visitar qualquer sala pelo @nick">🛡️ Visitar</button>`
+                          : ''
+                      }
                       <button class="btn btn-sm" id="btn-copy-my-id" title="Copiar seu @nick">📋</button>
                     </div>
                   </div>
@@ -3838,7 +3921,7 @@ class PocketCornerApp {
                       class="chat-input-minimal"
                       value="${this.escapeHtml(this.popupFriendsFilterQuery)}"
                       style="flex: 1; min-width: 200px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 7px 12px;"
-                      placeholder="🔍 Filtrar amigo por nome ou @nick..."
+                      placeholder="🔍 Filtrar amigo ou sala por nome ou @nick..."
                     />
                     <button class="btn btn-sm btn-primary" id="btn-summon-bot">
                       🐦 Chamar Pipoca (Bot)
@@ -3848,13 +3931,13 @@ class PocketCornerApp {
                   <!-- Lista Vertical de Amigos (um abaixo do outro) -->
                   <div style="display: flex; flex-direction: column; gap: 8px;" id="popup-friends-vertical-list">
                     ${
-                      friendsList.length === 0
+                      popupTargetIds.length === 0
                         ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 14px 4px; text-align: center;">
                             🤝 Você ainda não tem amigos adicionados. Use o campo acima para mandar um convite pelo <strong>@nick</strong>!
                           </div>`
                         : enrichedPopupFriends.length === 0
                           ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 14px 4px; text-align: center;">
-                              🔍 Nenhum amigo encontrado para "${this.escapeHtml(this.popupFriendsFilterQuery)}".
+                              🔍 Nenhum amigo ou sala encontrado para "${this.escapeHtml(this.popupFriendsFilterQuery)}".
                             </div>`
                           : enrichedPopupFriends
                               .map((friend) => {
@@ -3871,6 +3954,11 @@ class PocketCornerApp {
                                       <div class="item-name" style="display: flex; align-items: center; gap: 6px;">
                                         <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
                                         <span>${this.escapeHtml(friend.displayName)}</span>
+                                        ${
+                                          !friend.isConfirmedFriend && isAdmin
+                                            ? `<span style="font-size: 0.65rem; padding: 1px 6px; border-radius: 999px; background: rgba(250, 204, 21, 0.16); color: #fde047;">🛡️ Sala</span>`
+                                            : ''
+                                        }
                                       </div>
                                       <div class="item-sub">
                                         @${this.escapeHtml(friend.username)} • ${
@@ -3899,8 +3987,8 @@ class PocketCornerApp {
                                           : friend.isOnline && friend.hostStatus === 'DND'
                                             ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${this.escapeHtml(friend.userId)}">📫 Presente</button>
                                                <button class="btn btn-sm btn-primary" data-visit-user="${this.escapeHtml(friend.userId)}">🚀 Visitar</button>`
-                                            : `<button class="btn btn-sm ${friend.isOnline ? 'btn-primary' : ''}" data-visit-user="${this.escapeHtml(friend.userId)}">
-                                                ${friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                                            : `<button class="btn btn-sm ${friend.isOnline || isAdmin ? 'btn-primary' : ''}" data-visit-user="${this.escapeHtml(friend.userId)}">
+                                                ${!isAdmin && friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
                                               </button>`
                                       }
                                     </div>
@@ -4155,6 +4243,15 @@ class PocketCornerApp {
       };
 
       document.getElementById('btn-add-friend')?.addEventListener('click', sendFriendReq);
+      document.getElementById('btn-admin-visit-nick')?.addEventListener('click', () => {
+        if (!this.profile?.isAdmin) return;
+        const inp = document.getElementById('input-friend-username') as HTMLInputElement;
+        const val = inp?.value.trim() || '';
+        const cleanVal = val.replace(/^@+/, '').trim();
+        if (!cleanVal) return;
+        this.socket.emit('room:visit', { targetUserId: cleanVal });
+        this.closeModal();
+      });
       document.getElementById('input-friend-username')?.addEventListener('keydown', (e) => {
         if ((e as KeyboardEvent).key === 'Enter') {
           e.preventDefault();
