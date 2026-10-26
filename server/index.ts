@@ -1892,6 +1892,43 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     broadcastDirectory();
   });
 
+  socket.on('friends:wave', ({ targetUserId }) => {
+    const rl = store.consumeRateLimitToken(userId, 'friends:wave', 1, 4000);
+    if (!rl.allowed) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Aguarde alguns segundos antes de mandar outro "Oi!" 👋',
+      });
+      return;
+    }
+
+    const u = store.getUserById(userId);
+    const targetUser =
+      store.getUserById(targetUserId) || store.findUserByUsernameOrId(targetUserId);
+    if (!u || !targetUser || targetUser.id === userId) return;
+
+    const isAdmin = store.isUserAdmin(u);
+    if (!isAdmin && !store.areFriendsAccepted(userId, targetUser.id)) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Você só pode mandar "👋 Oi" para amigos confirmados.',
+      });
+      return;
+    }
+
+    emitToUser(targetUser.id, 'friends:wave_alert', {
+      fromUserId: u.id,
+      fromUsername: u.username,
+      fromDisplayName: u.displayName,
+      fromAvatarBody: u.equipped.avatar_body,
+    });
+
+    socket.emit('system:toast', {
+      type: 'success',
+      message: `👋 Você mandou um "Oi!" para ${targetUser.displayName} (@${targetUser.username})!`,
+    });
+  });
+
   // ------------------------------------------
   // Simulador de Visita do Bot Amigo (Pipoca)
   // ------------------------------------------

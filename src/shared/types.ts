@@ -325,6 +325,7 @@ export interface ClientToServerEvents {
   'friends:add': (payload: { usernameOrId: string }) => void;
   'friends:respond': (payload: { requesterUserId: string; accept: boolean }) => void;
   'friends:cancel': (payload: { targetUserId: string }) => void;
+  'friends:wave': (payload: { targetUserId: string }) => void;
   'bot:summon_visit': () => void;
 }
 
@@ -345,6 +346,12 @@ export interface ServerToClientEvents {
     targetAvatarBody: string;
     pendingIncomingCount: number;
     pendingOutgoingCount: number;
+  }) => void;
+  'friends:wave_alert': (payload: {
+    fromUserId: string;
+    fromUsername: string;
+    fromDisplayName: string;
+    fromAvatarBody: string;
   }) => void;
 
   'room:player_moved': (payload: { userId: string; targetX: number; facing: 'left' | 'right' }) => void;

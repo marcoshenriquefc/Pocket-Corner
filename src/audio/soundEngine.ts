@@ -596,6 +596,68 @@ class SoundEngine {
       }, idx * 85);
     });
   }
+
+  /**
+   * 🟢 Som Nostálgico de Login do MSN Messenger (quando um amigo entra online no cantinho)
+   */
+  public playFriendOnlineMsn() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const playLoginChimeNote = (
+      freq: number,
+      delayMs: number,
+      durationSec: number,
+      vol: number
+    ) => {
+      setTimeout(() => {
+        const c = this.getContext();
+        if (!c) return;
+        const now = c.currentTime;
+
+        const oscMain = c.createOscillator();
+        const oscWarm = c.createOscillator();
+        const gain = c.createGain();
+        const warmGain = c.createGain();
+
+        oscMain.type = 'sine';
+        oscMain.frequency.setValueAtTime(freq, now);
+
+        oscWarm.type = 'triangle';
+        oscWarm.frequency.setValueAtTime(freq * 1.5, now);
+        warmGain.gain.setValueAtTime(0.18, now);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(vol, now + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + durationSec);
+
+        oscMain.connect(gain);
+        oscWarm.connect(warmGain);
+        warmGain.connect(gain);
+        gain.connect(c.destination);
+
+        oscMain.start(now);
+        oscWarm.start(now);
+        oscMain.stop(now + durationSec + 0.02);
+        oscWarm.stop(now + durationSec + 0.02);
+      }, delayMs);
+    };
+
+    // Acorde ascendente cristalino estilo MSN Messenger Sign-In (E5 -> B5 -> E6)
+    playLoginChimeNote(659.25, 0, 0.24, 0.12); // E5
+    playLoginChimeNote(987.77, 115, 0.26, 0.13); // B5
+    playLoginChimeNote(1318.51, 230, 0.55, 0.14); // E6
+  }
+
+  /**
+   * 👋 Som amigável de "Dar Oi" (aceno rápido)
+   */
+  public playWaveHello() {
+    this.playTone(659.25, 0.12, 'sine', 0.11, 880);
+    setTimeout(() => {
+      this.playTone(1046.5, 0.24, 'triangle', 0.12);
+    }, 95);
+  }
 }
 
 export const soundEngine = new SoundEngine();

@@ -1866,6 +1866,7 @@ body.transparent-overlay .ambient-sound-bar {
 }
 
 .floating-friend-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1874,7 +1875,7 @@ body.transparent-overlay .ambient-sound-bar {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: background 0.14s ease, border-color 0.14s ease;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
 }
 
 .floating-friend-row:hover {
@@ -1896,18 +1897,40 @@ body.transparent-overlay .ambient-sound-bar {
   border-color: rgba(250, 204, 21, 0.45);
 }
 
-.floating-friend-left {
-  display: flex;
+.floating-friend-avatar-wrap {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
-  flex: 1;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.floating-friend-avatar-wrap .status-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #0f172a;
 }
 
 .floating-friend-avatar {
   font-size: 1.05rem;
   line-height: 1;
   flex-shrink: 0;
+}
+
+.floating-friend-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .floating-friend-info {
@@ -1979,6 +2002,11 @@ body.transparent-overlay .ambient-sound-bar {
   border-radius: 10px;
 }
 
+.floating-empty-compact {
+  display: none;
+  font-size: 1.1rem;
+}
+
 .floating-friends-invite-box {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   padding-top: 8px;
@@ -2036,12 +2064,357 @@ body.transparent-overlay .ambient-sound-bar {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.floating-collapse-btn.active-compact {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #bae6fd;
+}
+
+/* ==========================================
+   Modo Super Compacto ("Dock Vertical Fininho" 54px — Apenas Bolinhas/Avatares + Hover Flyout)
+   ========================================== */
+.floating-friends-panel.super-compact {
+  width: 54px;
+  border-radius: 26px;
+  overflow: visible;
+}
+
+.floating-friends-panel.super-compact .floating-friends-header {
+  flex-direction: column;
+  padding: 8px 4px 6px;
+  gap: 5px;
+  border-radius: 26px 26px 0 0;
+}
+
+.floating-friends-panel.super-compact .floating-friends-title-text {
+  display: none;
+}
+
+.floating-friends-panel.super-compact .floating-friends-header-title {
+  flex-direction: column;
+  gap: 3px;
+}
+
+.floating-friends-panel.super-compact .floating-friends-count {
+  padding: 1px 5px;
+  font-size: 0.62rem;
+}
+
+.floating-friends-panel.super-compact .floating-friends-header-actions {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.floating-friends-panel.super-compact .floating-friends-body {
+  padding: 7px 6px 9px;
+  gap: 6px;
+  align-items: center;
+  overflow: visible;
+}
+
+.floating-friends-panel.super-compact .floating-friends-search-wrap,
+.floating-friends-panel.super-compact .floating-friends-invite-box {
+  display: none;
+}
+
+.floating-friends-panel.super-compact .floating-friends-list {
+  overflow: visible;
+  max-height: none;
+  padding-right: 0;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+}
+
+.floating-friends-panel.super-compact .floating-return-home-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.floating-friends-panel.super-compact .floating-return-home-label {
+  display: none;
+}
+
+.floating-friends-panel.super-compact .floating-empty-full {
+  display: none;
+}
+
+.floating-friends-panel.super-compact .floating-empty-compact {
+  display: block;
+}
+
+.floating-friends-panel.super-compact .floating-friends-empty {
+  padding: 8px 4px;
+  width: 38px;
+}
+
+.floating-friends-panel.super-compact .floating-friend-row {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 13px;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.floating-friends-panel.super-compact .floating-friend-row:hover {
+  transform: scale(1.06);
+  border-color: rgba(56, 189, 248, 0.55);
+  z-index: 60;
+}
+
+.floating-friends-panel.super-compact .floating-friend-avatar-wrap {
+  width: 38px;
+  height: 38px;
+  background: transparent;
+}
+
+.floating-friends-panel.super-compact .floating-friend-avatar {
+  font-size: 1.2rem;
+}
+
+.floating-friends-panel.super-compact .floating-friend-details {
+  position: absolute;
+  right: calc(100% + 9px);
+  top: 50%;
+  transform: translateY(-50%) translateX(5px);
+  width: 232px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  z-index: 220;
+}
+
+/* Ponte invisível para o mouse atravessar da bolinha para o card de botões sem fechar o hover */
+.floating-friends-panel.super-compact .floating-friend-details::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -12px;
+  width: 14px;
+}
+
+.floating-friends-panel.super-compact.flyout-right .floating-friend-details {
+  right: auto;
+  left: calc(100% + 9px);
+  transform: translateY(-50%) translateX(-5px);
+}
+
+.floating-friends-panel.super-compact.flyout-right .floating-friend-details::after {
+  right: auto;
+  left: -12px;
+}
+
+.floating-friends-panel.super-compact .floating-friend-row:hover .floating-friend-details {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(-50%) translateX(0);
+}
+
+.floating-compact-add-btn {
+  width: 36px;
+  height: 32px;
+  border-radius: 11px;
+  border: 1px dashed rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.1);
+  color: #bae6fd;
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.floating-compact-add-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  transform: scale(1.06);
+}
+
+/* ==========================================
+   Alerta Estilo "MSN Messenger Clássico" quando um Amigo Entra Online ou Manda um Oi
+   ========================================== */
+.msn-online-toast {
+  pointer-events: auto;
+  width: 288px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(24, 38, 66, 0.97) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.7),
+    0 0 18px rgba(56, 189, 248, 0.22);
+  animation: msnToastSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.msn-online-toast.is-wave {
+  border-color: rgba(250, 204, 21, 0.65);
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.7),
+    0 0 18px rgba(250, 204, 21, 0.22);
+}
+
+.msn-online-toast.closing {
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+}
+
+@keyframes msnToastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.msn-toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.38), rgba(59, 130, 246, 0.22));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.msn-online-toast.is-wave .msn-toast-header {
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.32), rgba(59, 130, 246, 0.2));
+}
+
+.msn-toast-brand {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #e0f2fe;
+}
+
+.msn-toast-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.msn-toast-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.msn-toast-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.msn-toast-avatar-box {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.18), rgba(30, 41, 59, 0.9));
+  border: 2px solid rgba(74, 222, 128, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 10px rgba(74, 222, 128, 0.15);
+}
+
+.msn-toast-avatar {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.msn-toast-status-dot {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #4ade80;
+  border: 2px solid #0f172a;
+  box-shadow: 0 0 6px #4ade80;
+}
+
+.msn-toast-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.msn-toast-title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msn-toast-nick {
+  font-size: 0.66rem;
+  color: #7dd3fc;
+  font-weight: 600;
+}
+
+.msn-toast-message {
+  font-size: 0.7rem;
+  color: #cbd5e1;
+  line-height: 1.25;
+}
+
+.msn-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.msn-btn-wave {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #bae6fd;
+}
+
+.msn-btn-wave:hover {
+  background: rgba(56, 189, 248, 0.28);
+}
+
 @media (max-width: 900px) {
   .floating-friends-panel {
     top: auto;
     bottom: 74px;
     right: 12px;
     width: 268px;
+  }
+  .floating-friends-panel.super-compact {
+    width: 52px;
   }
 }
 

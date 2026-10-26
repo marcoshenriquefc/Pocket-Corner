@@ -237,6 +237,9 @@ class PocketCornerApp {
   private friendsFilterQuery = '';
   private popupFriendsFilterQuery = '';
   private floatingFriendsCollapsed = false;
+  private floatingFriendsCompact = localStorage.getItem('pc_friends_compact') === '1';
+  private knownOnlineFriendIds = new Set<string>();
+  private hasInitializedOnlineFriends = false;
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -1041,6 +1044,7 @@ class PocketCornerApp {
       panel.style.left = `${nextLeft}px`;
       panel.style.top = `${nextTop}px`;
       panel.style.right = 'auto';
+      panel.classList.toggle('flyout-right', nextLeft < 240);
     });
 
     const stopDrag = () => {
@@ -1179,6 +1183,8 @@ class PocketCornerApp {
     if (this.socket) {
       this.socket.disconnect();
     }
+    this.hasInitializedOnlineFriends = false;
+    this.knownOnlineFriendIds.clear();
 
     const baseUrl = getApiBaseUrl();
     const socketOpts = {
@@ -1212,6 +1218,12 @@ class PocketCornerApp {
           JSON.stringify(profile.pendingOutgoingFriends);
 
       this.profile = profile;
+      if (!this.hasInitializedOnlineFriends && this.directory.length > 0) {
+        this.knownOnlineFriendIds = new Set(
+          (profile.friends || []).filter((fid) => this.directory.some((d) => d.userId === fid))
+        );
+        this.hasInitializedOnlineFriends = true;
+      }
       if (this.authSession) {
         this.saveAuthSession({
           ...this.authSession,
@@ -1287,6 +1299,26 @@ class PocketCornerApp {
 
     this.socket.on('directory:online', (entries) => {
       this.directory = entries;
+
+      if (this.profile) {
+        const confirmedFriends = this.profile.friends || [];
+        const currentOnlineSet = new Set(
+          confirmedFriends.filter((fid) => entries.some((d) => d.userId === fid))
+        );
+
+        if (!this.hasInitializedOnlineFriends) {
+          this.knownOnlineFriendIds = currentOnlineSet;
+          this.hasInitializedOnlineFriends = true;
+        } else {
+          for (const fid of currentOnlineSet) {
+            if (!this.knownOnlineFriendIds.has(fid)) {
+              this.showMsnFriendPopup({ kind: 'ONLINE', userId: fid });
+            }
+          }
+          this.knownOnlineFriendIds = currentOnlineSet;
+        }
+      }
+
       this.renderFloatingDock();
       this.renderQuickFriendsStrip();
       if (this.activeModal === 'FRIENDS') {
@@ -1384,6 +1416,10 @@ class PocketCornerApp {
         this.dismissedIncomingFriendIds.delete(otherUserId);
       }
 
+      if (payload.kind === 'ACCEPTED') {
+        this.knownOnlineFriendIds.add(otherUserId);
+      }
+
       if (payload.kind === 'SENT' || payload.kind === 'INCOMING' || payload.kind === 'ACCEPTED') {
         this.activeFriendAlert = {
           kind: payload.kind,
@@ -1409,6 +1445,23 @@ class PocketCornerApp {
       this.renderQuickFriendsStrip();
       if (this.activeModal === 'FRIENDS') {
         this.renderActiveModal();
+      }
+    });
+
+    this.socket.on('friends:wave_alert', (payload) => {
+      this.showMsnFriendPopup({
+        kind: 'WAVE',
+        userId: payload.fromUserId,
+        username: payload.fromUsername,
+        displayName: payload.fromDisplayName,
+        avatarBody: payload.fromAvatarBody,
+      });
+      if (this.profile) {
+        this.renderer.showAmbientThought(
+          this.profile.id,
+          `👋 @${payload.fromUsername} mandou um Oi pra você!`,
+          5500
+        );
       }
     });
 
@@ -2418,7 +2471,14 @@ class PocketCornerApp {
     const headerEl = document.getElementById('floating-friends-header');
     if (!panelEl || !headerEl || !this.profile) return;
 
+    const isCompactActive = this.floatingFriendsCompact && !this.floatingFriendsCollapsed;
     panelEl.classList.toggle('collapsed', this.floatingFriendsCollapsed);
+    panelEl.classList.toggle('super-compact', isCompactActive);
+
+    const rect = panelEl.getBoundingClientRect();
+    if (rect.width > 0) {
+      panelEl.classList.toggle('flyout-right', rect.left < 240);
+    }
 
     const copyNickBtn = document.getElementById('floating-copy-my-nick');
     if (copyNickBtn) {
@@ -2455,9 +2515,9 @@ class PocketCornerApp {
     headerEl.innerHTML = `
       <div class="floating-friends-header-title">
         <span>${isAdmin ? '🛡️' : '👥'}</span>
-        <span>${isAdmin ? 'Amizades & Salas' : 'Amizades'}</span>
+        <span class="floating-friends-title-text">${isAdmin ? 'Amizades & Salas' : 'Amizades'}</span>
         <span class="floating-friends-count" title="${onlineFriendsCount} online de ${allVisibleIds.length}">
-          ${onlineFriendsCount}/${allVisibleIds.length}
+          ${isCompactActive ? onlineFriendsCount : `${onlineFriendsCount}/${allVisibleIds.length}`}
         </span>
       </div>
       <div class="floating-friends-header-actions">
@@ -2468,10 +2528,21 @@ class PocketCornerApp {
                 id="floating-header-pending-btn"
                 title="Abrir Amizades Pendentes (${totalPending})"
               >
-                ${pendingInCount > 0 ? '📨' : '⏳'} ${totalPending}
+                ${pendingInCount > 0 ? '📨' : '⏳'}${isCompactActive ? '' : ` ${totalPending}`}
               </button>`
             : ''
         }
+        <button
+          class="floating-collapse-btn ${this.floatingFriendsCompact ? 'active-compact' : ''}"
+          id="floating-compact-btn"
+          title="${
+            this.floatingFriendsCompact
+              ? 'Expandir lista completa (Nomes + Busca)'
+              : 'Modo Super Compacto (Dock fininho só com avatares)'
+          }"
+        >
+          ${this.floatingFriendsCompact ? '⇤' : '🫧'}
+        </button>
         <button
           class="floating-collapse-btn"
           id="floating-collapse-btn"
@@ -2485,6 +2556,16 @@ class PocketCornerApp {
     document.getElementById('floating-header-pending-btn')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.openPendingFriendsShortcut();
+    });
+
+    document.getElementById('floating-compact-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.floatingFriendsCompact = !this.floatingFriendsCompact;
+      localStorage.setItem('pc_friends_compact', this.floatingFriendsCompact ? '1' : '0');
+      if (this.floatingFriendsCollapsed) {
+        this.floatingFriendsCollapsed = false;
+      }
+      this.renderQuickFriendsStrip();
     });
 
     document.getElementById('floating-collapse-btn')?.addEventListener('click', (e) => {
@@ -2519,7 +2600,9 @@ class PocketCornerApp {
           ])
         )
       : friendsIds;
-    const q = this.friendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
+    const q = this.floatingFriendsCompact
+      ? ''
+      : this.friendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
 
     const enrichedFriends = targetIds
       .map((fid) => {
@@ -2554,7 +2637,7 @@ class PocketCornerApp {
         !isMyRoom
           ? `<button class="floating-return-home-btn" id="floating-btn-return-home" title="Voltar para o seu cantinho">
               <span>🏠</span>
-              <span>Voltar ao Meu Cantinho</span>
+              <span class="floating-return-home-label">Voltar ao Meu Cantinho</span>
             </button>`
           : ''
       }
@@ -2564,18 +2647,21 @@ class PocketCornerApp {
           const meta = this.resolveFriendMeta(reqId);
           return `
             <div class="floating-friend-row is-pending-incoming">
-              <div class="floating-friend-left">
+              <div class="floating-friend-avatar-wrap" title="📨 Pedido de amizade de ${this.escapeHtml(meta.displayName)} (@${this.escapeHtml(meta.username)})">
                 <span class="floating-friend-avatar">${meta.icon}</span>
+                <span class="status-dot ACTIVE"></span>
+              </div>
+              <div class="floating-friend-details">
                 <div class="floating-friend-info">
                   <div class="floating-friend-name">${this.escapeHtml(meta.displayName)}</div>
                   <div class="floating-friend-sub" style="color: #fde047;">
                     @${this.escapeHtml(meta.username)} • 📨 Pedido recebido
                   </div>
                 </div>
-              </div>
-              <div class="floating-friend-actions">
-                <button class="btn btn-sm btn-primary" data-float-accept="${this.escapeHtml(reqId)}" title="Aceitar amizade">✓</button>
-                <button class="btn btn-sm btn-danger" data-float-reject="${this.escapeHtml(reqId)}" title="Recusar">✕</button>
+                <div class="floating-friend-actions">
+                  <button class="btn btn-sm btn-primary" data-float-accept="${this.escapeHtml(reqId)}" title="Aceitar amizade">✓</button>
+                  <button class="btn btn-sm btn-danger" data-float-reject="${this.escapeHtml(reqId)}" title="Recusar">✕</button>
+                </div>
               </div>
             </div>
           `;
@@ -2583,7 +2669,7 @@ class PocketCornerApp {
         .join('')}
 
       ${
-        pendingOut.length > 0
+        pendingOut.length > 0 && !this.floatingFriendsCompact
           ? `<button class="floating-pending-out-bar" id="floating-btn-open-pending-out" title="Clique para gerenciar seus convites enviados">
               <span>⏳ ${pendingOut.length} convite(s) enviado(s) pendente(s)</span>
               <span>Ver ▸</span>
@@ -2594,10 +2680,13 @@ class PocketCornerApp {
       ${
         targetIds.length === 0
           ? `<div class="floating-friends-empty">
-              <div>🤝 Você ainda não tem amigos na lista.</div>
-              <div style="margin-top: 3px; font-size: 0.66rem; color: var(--text-muted);">
-                Envie um convite abaixo usando o <strong>@nick</strong> de identificação do seu amigo!
+              <div class="floating-empty-full">
+                <div>🤝 Você ainda não tem amigos na lista.</div>
+                <div style="margin-top: 3px; font-size: 0.66rem; color: var(--text-muted);">
+                  Envie um convite abaixo usando o <strong>@nick</strong> de identificação do seu amigo!
+                </div>
               </div>
+              <div class="floating-empty-compact" title="Sem amigos ainda — clique no + abaixo para convidar pelo @nick">🤝</div>
             </div>`
           : enrichedFriends.length === 0
             ? `<div class="floating-friends-empty">
@@ -2630,9 +2719,14 @@ class PocketCornerApp {
 
                   return `
                     <div class="floating-friend-row ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''}">
-                      <div class="floating-friend-left">
-                        <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
+                      <div
+                        class="floating-friend-avatar-wrap"
+                        ${!isVisitingThem ? `data-float-avatar-visit="${this.escapeHtml(friend.userId)}"` : ''}
+                      >
                         <span class="floating-friend-avatar">${friend.icon}</span>
+                        <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
+                      </div>
+                      <div class="floating-friend-details">
                         <div class="floating-friend-info">
                           <div class="floating-friend-name" title="${this.escapeHtml(friend.displayName)} (@${this.escapeHtml(friend.username)})">
                             ${this.escapeHtml(friend.displayName)}
@@ -2642,23 +2736,42 @@ class PocketCornerApp {
                             @${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}
                           </div>
                         </div>
-                      </div>
-                      <div class="floating-friend-actions">
-                        ${
-                          isVisitingThem
-                            ? `<span class="floating-visit-tag">📍 Aqui</span>`
-                            : friend.isOnline && friend.hostStatus === 'DND'
-                              ? `<button class="btn btn-sm btn-gold" data-float-drop="${this.escapeHtml(friend.userId)}" title="Modo DND — Deixar café com Post-it">📫</button>
-                                 <button class="btn btn-sm btn-primary" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">🚀</button>`
-                              : `<button class="btn btn-sm ${friend.isOnline || isAdmin ? 'btn-primary' : ''}" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">
-                                  ${!isAdmin && friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
-                                </button>`
-                        }
+                        <div class="floating-friend-actions">
+                          ${
+                            isVisitingThem
+                              ? `<span class="floating-visit-tag">📍 Aqui</span>`
+                              : friend.isOnline && friend.hostStatus === 'DND'
+                                ? `<button class="btn btn-sm btn-gold" data-float-drop="${this.escapeHtml(friend.userId)}" title="Modo DND — Deixar café com Post-it">📫</button>
+                                   <button class="btn btn-sm btn-primary" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">🚀</button>`
+                                : `
+                                   ${
+                                     friend.isOnline
+                                       ? `<button class="btn btn-sm" data-float-wave="${this.escapeHtml(friend.userId)}" title="Mandar um 👋 Oi estilo MSN para ${this.escapeHtml(friend.displayName)}">👋</button>`
+                                       : ''
+                                   }
+                                   <button class="btn btn-sm ${friend.isOnline || isAdmin ? 'btn-primary' : ''}" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">
+                                     ${!isAdmin && friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                                   </button>
+                                  `
+                          }
+                        </div>
                       </div>
                     </div>
                   `;
                 })
                 .join('')
+      }
+
+      ${
+        this.floatingFriendsCompact
+          ? `<button
+              class="floating-compact-add-btn"
+              id="floating-compact-expand-invite"
+              title="Convidar amigo pelo @nick ou buscar por nome"
+            >
+              ➕
+            </button>`
+          : ''
       }
     `;
 
@@ -2668,6 +2781,24 @@ class PocketCornerApp {
 
     document.getElementById('floating-btn-open-pending-out')?.addEventListener('click', () => {
       this.openPendingFriendsShortcut();
+    });
+
+    document.getElementById('floating-compact-expand-invite')?.addEventListener('click', () => {
+      this.floatingFriendsCompact = false;
+      localStorage.setItem('pc_friends_compact', '0');
+      this.renderQuickFriendsStrip();
+      const inp = document.getElementById('floating-add-friend-input') as HTMLInputElement | null;
+      inp?.focus();
+    });
+
+    listEl.querySelectorAll('[data-float-avatar-visit]').forEach((el) => {
+      el.addEventListener('click', () => {
+        if (!this.floatingFriendsCompact) return;
+        const targetUserId = (el as HTMLElement).dataset.floatAvatarVisit;
+        if (targetUserId) {
+          this.socket.emit('room:visit', { targetUserId });
+        }
+      });
     });
 
     listEl.querySelectorAll('[data-float-accept]').forEach((btn) => {
@@ -2688,6 +2819,14 @@ class PocketCornerApp {
       btn.addEventListener('click', () => {
         const targetUserId = (btn as HTMLElement).dataset.floatVisit!;
         this.socket.emit('room:visit', { targetUserId });
+      });
+    });
+
+    listEl.querySelectorAll('[data-float-wave]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetUserId = (btn as HTMLElement).dataset.floatWave!;
+        soundEngine.playWaveHello();
+        this.socket.emit('friends:wave', { targetUserId });
       });
     });
 
@@ -5598,6 +5737,98 @@ class PocketCornerApp {
     document.getElementById('btn-close-modal')?.addEventListener('click', () => {
       this.closeModal();
     });
+  }
+
+  private showMsnFriendPopup(opts: {
+    kind: 'ONLINE' | 'WAVE';
+    userId: string;
+    username?: string;
+    displayName?: string;
+    avatarBody?: string;
+  }) {
+    const meta = this.resolveFriendMeta(opts.userId);
+    const username = opts.username || meta.username;
+    const displayName = opts.displayName || meta.displayName;
+    const icon = opts.avatarBody
+      ? getCosmeticById(opts.avatarBody)?.icon || meta.icon
+      : meta.icon;
+
+    if (opts.kind === 'ONLINE') {
+      soundEngine.playFriendOnlineMsn();
+    } else {
+      soundEngine.playWaveHello();
+    }
+
+    const existing = this.toastStackEl.querySelector(
+      `[data-msn-toast-user="${opts.userId.replace(/"/g, '')}"]`
+    );
+    if (existing) existing.remove();
+
+    const card = document.createElement('div');
+    card.className = `msn-online-toast ${opts.kind === 'WAVE' ? 'is-wave' : 'is-online'}`;
+    card.dataset.msnToastUser = opts.userId;
+
+    card.innerHTML = `
+      <div class="msn-toast-header">
+        <div class="msn-toast-brand">
+          <span>🟢</span>
+          <span>Pocket Messenger</span>
+        </div>
+        <button class="msn-toast-close" type="button" title="Fechar">✕</button>
+      </div>
+      <div class="msn-toast-body">
+        <div class="msn-toast-avatar-box">
+          <span class="msn-toast-avatar">${icon}</span>
+          <span class="msn-toast-status-dot"></span>
+        </div>
+        <div class="msn-toast-content">
+          <div class="msn-toast-title">
+            <strong>${this.escapeHtml(displayName)}</strong>
+            <span class="msn-toast-nick">@${this.escapeHtml(username)}</span>
+          </div>
+          <div class="msn-toast-message">
+            ${
+              opts.kind === 'WAVE'
+                ? '👋 Mandou um "Oi!" pra você no cantinho!'
+                : '🟢 Acabou de entrar no cantinho!'
+            }
+          </div>
+          <div class="msn-toast-actions">
+            <button class="btn btn-sm btn-primary msn-btn-visit" type="button">
+              🚀 Visitar
+            </button>
+            <button class="btn btn-sm msn-btn-wave" type="button">
+              ${opts.kind === 'WAVE' ? '👋 Retribuir Oi' : '👋 Dar Oi'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const dismiss = () => {
+      card.classList.add('closing');
+      setTimeout(() => card.remove(), 220);
+    };
+
+    card.querySelector('.msn-toast-close')?.addEventListener('click', dismiss);
+    card.querySelector('.msn-btn-visit')?.addEventListener('click', () => {
+      this.socket.emit('room:visit', { targetUserId: opts.userId });
+      dismiss();
+    });
+    card.querySelector('.msn-btn-wave')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      soundEngine.playWaveHello();
+      this.socket.emit('friends:wave', { targetUserId: opts.userId });
+      btn.disabled = true;
+      btn.textContent = '✓ Oi enviado!';
+      setTimeout(dismiss, 900);
+    });
+
+    this.toastStackEl.appendChild(card);
+
+    setTimeout(() => {
+      if (card.isConnected) dismiss();
+    }, 9500);
   }
 
   private showToast(type: 'info' | 'success' | 'warning' | 'error', message: string) {
