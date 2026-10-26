@@ -234,6 +234,9 @@ class PocketCornerApp {
   } | null = null;
   private friendAlertTimer: number | null = null;
   private dismissedIncomingFriendIds = new Set<string>();
+  private friendsFilterQuery = '';
+  private popupFriendsFilterQuery = '';
+  private floatingFriendsCollapsed = false;
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -651,6 +654,51 @@ class PocketCornerApp {
 
         <!-- Dock Flutuante Minimalista: Loja, Pets, Amigos e Mochila -->
         <nav class="floating-dock" id="floating-dock"></nav>
+
+        <!-- Lista Flutuante de Amizades (Vertical, um abaixo do outro, com filtro por nome e convite por @nick) -->
+        <aside class="floating-friends-panel" id="floating-friends-panel">
+          <div class="floating-friends-header" id="floating-friends-header" title="Arraste para mover a lista flutuante de amizades"></div>
+          <div class="floating-friends-body" id="floating-friends-body">
+            <div class="floating-friends-search-wrap">
+              <input
+                type="text"
+                id="floating-friends-filter"
+                class="floating-friends-search-input"
+                placeholder="🔍 Filtrar amigo por nome..."
+                autocomplete="off"
+              />
+              <button
+                class="floating-friends-clear-btn"
+                id="floating-friends-filter-clear"
+                title="Limpar filtro"
+                style="display: none;"
+              >✕</button>
+            </div>
+
+            <div class="floating-friends-list" id="floating-friends-list"></div>
+
+            <div class="floating-friends-invite-box">
+              <div class="floating-friends-invite-top">
+                <span>➕ Mandar convite pelo @nick</span>
+                <button class="floating-my-nick-pill" id="floating-copy-my-nick" title="Clique para copiar seu @nick de identificação">
+                  📋 Meu nick
+                </button>
+              </div>
+              <div class="floating-friends-invite-row">
+                <input
+                  type="text"
+                  id="floating-add-friend-input"
+                  class="floating-friends-invite-input"
+                  placeholder="Digite o @nick..."
+                  autocomplete="off"
+                />
+                <button class="btn btn-sm btn-primary" id="floating-add-friend-btn" title="Enviar convite de amizade pelo @nick">
+                  📨
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
 
       <div class="toast-stack" id="toast-stack"></div>
@@ -887,8 +935,101 @@ class PocketCornerApp {
       this.renderTopbar();
     });
 
+    const filterInp = document.getElementById('floating-friends-filter') as HTMLInputElement | null;
+    const filterClearBtn = document.getElementById('floating-friends-filter-clear');
+    filterInp?.addEventListener('input', () => {
+      this.friendsFilterQuery = filterInp.value;
+      if (filterClearBtn) {
+        filterClearBtn.style.display = this.friendsFilterQuery.trim() ? 'inline-flex' : 'none';
+      }
+      this.renderFloatingFriendsListItems();
+    });
+
+    filterClearBtn?.addEventListener('click', () => {
+      if (filterInp) {
+        filterInp.value = '';
+        filterInp.focus();
+      }
+      this.friendsFilterQuery = '';
+      filterClearBtn.style.display = 'none';
+      this.renderFloatingFriendsListItems();
+    });
+
+    const sendFloatingFriendInvite = () => {
+      const inp = document.getElementById('floating-add-friend-input') as HTMLInputElement | null;
+      const val = inp?.value.trim() || '';
+      if (!val) return;
+      const cleanVal = val.replace(/^@+/, '').trim();
+      if (cleanVal.length < 2) {
+        this.showToast('warning', 'Digite o @nick de identificação do amigo (ex: @Rick ou Rick).');
+        return;
+      }
+      this.socket.emit('friends:add', { usernameOrId: `@${cleanVal}` });
+      if (inp) inp.value = '';
+    };
+
+    document.getElementById('floating-add-friend-btn')?.addEventListener('click', sendFloatingFriendInvite);
+    document.getElementById('floating-add-friend-input')?.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        sendFloatingFriendInvite();
+      }
+    });
+
+    document.getElementById('floating-copy-my-nick')?.addEventListener('click', () => {
+      if (!this.profile) return;
+      const myTag = `@${this.profile.username}`;
+      navigator.clipboard.writeText(myTag).then(() => {
+        this.showToast('success', `📋 Seu nick de identificação (${myTag}) foi copiado!`);
+      });
+    });
+
+    this.setupFloatingFriendsDrag();
+
     this.renderFloatingDock();
     this.renderQuickFriendsStrip();
+  }
+
+  private setupFloatingFriendsDrag() {
+    const panel = document.getElementById('floating-friends-panel');
+    const header = document.getElementById('floating-friends-header');
+    if (!panel || !header) return;
+
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let origLeft = 0;
+    let origTop = 0;
+
+    header.addEventListener('pointerdown', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) return;
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      origLeft = rect.left;
+      origTop = rect.top;
+      header.setPointerCapture(e.pointerId);
+    });
+
+    header.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const nextLeft = Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, origLeft + dx));
+      const nextTop = Math.max(8, Math.min(window.innerHeight - 48, origTop + dy));
+      panel.style.left = `${nextLeft}px`;
+      panel.style.top = `${nextTop}px`;
+      panel.style.right = 'auto';
+    });
+
+    const stopDrag = () => {
+      dragging = false;
+    };
+    header.addEventListener('pointerup', stopDrag);
+    header.addEventListener('pointercancel', stopDrag);
   }
 
   private sendMsnAttention() {
@@ -2130,9 +2271,11 @@ class PocketCornerApp {
   }
 
   /**
-   * Barra de Amigos Sempre Visível abaixo da barra do palco (Acesso de 1 Clique para Visitar ou Voltar)
+   * Barra de Ações Rápidas abaixo da barra do palco + Atualização da Lista Flutuante de Amizades
    */
   private renderQuickFriendsStrip() {
+    this.renderFloatingFriendsPanel();
+
     const stripEl = document.getElementById('quick-friends-strip');
     if (!stripEl || !this.profile) return;
 
@@ -2144,13 +2287,10 @@ class PocketCornerApp {
     const pendingOutCount = this.profile.pendingOutgoingFriends?.length || 0;
     const totalPendingFriends = pendingInCount + pendingOutCount;
 
-    const others = this.directory
-      .filter((d) => d.userId !== this.profile?.id)
-      .sort((a, b) => {
-        const aFriend = a.isBot || this.profile!.friends.includes(a.userId) ? 1 : 0;
-        const bFriend = b.isBot || this.profile!.friends.includes(b.userId) ? 1 : 0;
-        return bFriend - aFriend;
-      });
+    const friendsIds = this.profile.friends || [];
+    const onlineFriendsCount = friendsIds.filter((fid) =>
+      this.directory.some((d) => d.userId === fid)
+    ).length;
 
     const botInMyRoom = Boolean(
       this.room?.players.some((p) => p.isBot || p.userId === 'bot_pipoca')
@@ -2164,6 +2304,15 @@ class PocketCornerApp {
       >
         <span class="quick-friend-avatar">${myBodyItem?.icon || '🏠'}</span>
         <span>Meu Cantinho</span>
+      </button>
+
+      <button
+        class="quick-friend-chip ${!this.floatingFriendsCollapsed ? 'active-room' : ''}"
+        id="quick-strip-toggle-floating-friends"
+        title="Mostrar/ocultar a Lista Flutuante de Amizades (com filtro por nome e convite por @nick)"
+      >
+        <span class="quick-friend-avatar">👥</span>
+        <span>Amizades (${onlineFriendsCount}/${friendsIds.length})</span>
       </button>
 
       ${
@@ -2196,75 +2345,6 @@ class PocketCornerApp {
           : ''
       }
 
-      ${others
-        .map((entry) => {
-          const bodyItem = getCosmeticById(entry.equipped.avatar_body);
-          const isVisitingThem = this.room?.hostUserId === entry.userId;
-          const isInMyRoom =
-            entry.currentRoomHostId === this.profile!.id ||
-            (isMyRoom && this.room?.players.some((p) => p.userId === entry.userId));
-          const isAwayVisitingOther = Boolean(
-            entry.currentRoomHostId &&
-              entry.currentRoomHostId !== entry.userId &&
-              !isInMyRoom
-          );
-          const isFriend = entry.isBot || this.profile!.friends.includes(entry.userId);
-          const isPendingIn = Boolean(
-            this.profile!.pendingIncomingFriends?.includes(entry.userId)
-          );
-          const isPendingOut = Boolean(
-            this.profile!.pendingOutgoingFriends?.includes(entry.userId)
-          );
-          const statusTitle = entry.workStatus ? ` • 🪧 "${entry.workStatus}"` : '';
-          const actionHint = isVisitingThem
-            ? isAwayVisitingOther
-              ? 'Você está na sala (Amigo saiu para visitar outra pessoa: "Volto já")'
-              : 'Você está visitando esta sala'
-            : entry.hostStatus === 'DND' && isFriend
-              ? 'Modo DND — Clique para deixar um café com Post-it!'
-              : !isFriend
-                ? isPendingIn
-                  ? 'Enviou pedido de amizade para você! Clique para aceitar agora'
-                  : isPendingOut
-                    ? 'Convite de amizade enviado (Aguardando aceitação) — Clique para ver pendentes'
-                    : 'Clique para enviar pedido de amizade'
-                : isAwayVisitingOther
-                  ? 'Saiu para visitar outro cantinho ("Volto já")'
-                  : entry.doorPermission === 'KNOCK'
-                    ? 'Clique para bater na porta (🔔 Toc-Toc)'
-                    : 'Clique para visitar com 1 clique (🤝 Co-Working +2 🪙)';
-
-          return `
-            <button
-              class="quick-friend-chip ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''}"
-              data-quick-friend="${entry.userId}"
-              title="${this.escapeHtml(entry.displayName)} (@${this.escapeHtml(entry.username)})${this.escapeHtml(statusTitle)} — ${actionHint}"
-            >
-              <span class="status-dot ${entry.hostStatus}"></span>
-              <span class="quick-friend-avatar">${bodyItem?.icon || '🧑'}</span>
-              <span>${this.escapeHtml(entry.displayName)}</span>
-              ${
-                isPendingIn
-                  ? `<span class="quick-friend-tag" style="color: #fde047; font-weight: 800;">📨 Aceitar!</span>`
-                  : isPendingOut
-                    ? `<span class="quick-friend-tag" style="color: #93c5fd;">⏳ Pendente</span>`
-                    : isAwayVisitingOther
-                      ? `<span class="quick-friend-tag" style="color: #fde047;">🪧 Volto já</span>`
-                      : entry.workStatus
-                        ? `<span class="quick-friend-tag">🪧 ${this.escapeHtml(entry.workStatus.slice(0, 14))}${entry.workStatus.length > 14 ? '…' : ''}</span>`
-                        : isVisitingThem
-                          ? `<span class="quick-friend-tag">📍 Na sala</span>`
-                          : isInMyRoom
-                            ? `<span class="quick-friend-tag" style="color: #86efac;">🤝 Aqui</span>`
-                            : entry.hostStatus === 'DND'
-                              ? `<span class="quick-friend-tag">📫</span>`
-                              : ''
-              }
-            </button>
-          `;
-        })
-        .join('')}
-
       ${
         !botInMyRoom && isMyRoom
           ? `<button
@@ -2285,6 +2365,19 @@ class PocketCornerApp {
       }
     });
 
+    document
+      .getElementById('quick-strip-toggle-floating-friends')
+      ?.addEventListener('click', () => {
+        this.floatingFriendsCollapsed = !this.floatingFriendsCollapsed;
+        this.renderQuickFriendsStrip();
+        if (!this.floatingFriendsCollapsed) {
+          const inp = document.getElementById(
+            'floating-friends-filter'
+          ) as HTMLInputElement | null;
+          inp?.focus();
+        }
+      });
+
     document.getElementById('quick-strip-pending-friends')?.addEventListener('click', () => {
       this.openPendingFriendsShortcut();
     });
@@ -2296,42 +2389,261 @@ class PocketCornerApp {
     document.getElementById('quick-strip-summon-bot')?.addEventListener('click', () => {
       this.socket.emit('bot:summon_visit');
     });
+  }
 
-    stripEl.querySelectorAll('[data-quick-friend]').forEach((btn) => {
+  /**
+   * Lista Flutuante de Amizades (Vertical, um abaixo do outro, com filtro por nome e convite por @nick)
+   * Exibe APENAS amigos confirmados (e convites pendentes), sem expor todos os usuários online do servidor.
+   */
+  private renderFloatingFriendsPanel() {
+    const panelEl = document.getElementById('floating-friends-panel');
+    const headerEl = document.getElementById('floating-friends-header');
+    if (!panelEl || !headerEl || !this.profile) return;
+
+    panelEl.classList.toggle('collapsed', this.floatingFriendsCollapsed);
+
+    const copyNickBtn = document.getElementById('floating-copy-my-nick');
+    if (copyNickBtn) {
+      copyNickBtn.textContent = `📋 @${this.profile.username}`;
+    }
+
+    const friendsIds = this.profile.friends || [];
+    const onlineFriendsCount = friendsIds.filter((fid) =>
+      this.directory.some((d) => d.userId === fid)
+    ).length;
+    const pendingInCount = this.profile.pendingIncomingFriends?.length || 0;
+    const pendingOutCount = this.profile.pendingOutgoingFriends?.length || 0;
+    const totalPending = pendingInCount + pendingOutCount;
+
+    headerEl.innerHTML = `
+      <div class="floating-friends-header-title">
+        <span>👥</span>
+        <span>Amizades</span>
+        <span class="floating-friends-count" title="${onlineFriendsCount} amigo(s) online de ${friendsIds.length}">
+          ${onlineFriendsCount}/${friendsIds.length}
+        </span>
+      </div>
+      <div class="floating-friends-header-actions">
+        ${
+          totalPending > 0
+            ? `<button
+                class="floating-pending-badge ${pendingInCount > 0 ? 'has-incoming' : 'has-outgoing'}"
+                id="floating-header-pending-btn"
+                title="Abrir Amizades Pendentes (${totalPending})"
+              >
+                ${pendingInCount > 0 ? '📨' : '⏳'} ${totalPending}
+              </button>`
+            : ''
+        }
+        <button
+          class="floating-collapse-btn"
+          id="floating-collapse-btn"
+          title="${this.floatingFriendsCollapsed ? 'Expandir lista de amizades' : 'Minimizar lista de amizades'}"
+        >
+          ${this.floatingFriendsCollapsed ? '▴' : '▾'}
+        </button>
+      </div>
+    `;
+
+    document.getElementById('floating-header-pending-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openPendingFriendsShortcut();
+    });
+
+    document.getElementById('floating-collapse-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.floatingFriendsCollapsed = !this.floatingFriendsCollapsed;
+      this.renderQuickFriendsStrip();
+    });
+
+    this.renderFloatingFriendsListItems();
+  }
+
+  private renderFloatingFriendsListItems() {
+    const listEl = document.getElementById('floating-friends-list');
+    if (!listEl || !this.profile) return;
+
+    const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
+    const pendingIn = this.profile.pendingIncomingFriends || [];
+    const pendingOut = this.profile.pendingOutgoingFriends || [];
+    const friendsIds = this.profile.friends || [];
+    const q = this.friendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
+
+    const enrichedFriends = friendsIds
+      .map((fid) => {
+        const meta = this.resolveFriendMeta(fid);
+        const dirEntry = this.directory.find((d) => d.userId === fid);
+        return {
+          ...meta,
+          dirEntry,
+          isOnline: Boolean(dirEntry || meta.isOnline),
+          hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
+          workStatus: dirEntry?.workStatus || '',
+          doorPermission: dirEntry?.doorPermission || ('OPEN' as DoorPermission),
+          currentRoomHostId: dirEntry?.currentRoomHostId,
+        };
+      })
+      .filter((f) => {
+        if (!q) return true;
+        return (
+          f.displayName.toLowerCase().includes(q) ||
+          f.username.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        return a.displayName.localeCompare(b.displayName, 'pt-BR');
+      });
+
+    listEl.innerHTML = `
+      ${
+        !isMyRoom
+          ? `<button class="floating-return-home-btn" id="floating-btn-return-home" title="Voltar para o seu cantinho">
+              <span>🏠</span>
+              <span>Voltar ao Meu Cantinho</span>
+            </button>`
+          : ''
+      }
+
+      ${pendingIn
+        .map((reqId) => {
+          const meta = this.resolveFriendMeta(reqId);
+          return `
+            <div class="floating-friend-row is-pending-incoming">
+              <div class="floating-friend-left">
+                <span class="floating-friend-avatar">${meta.icon}</span>
+                <div class="floating-friend-info">
+                  <div class="floating-friend-name">${this.escapeHtml(meta.displayName)}</div>
+                  <div class="floating-friend-sub" style="color: #fde047;">
+                    @${this.escapeHtml(meta.username)} • 📨 Pedido recebido
+                  </div>
+                </div>
+              </div>
+              <div class="floating-friend-actions">
+                <button class="btn btn-sm btn-primary" data-float-accept="${this.escapeHtml(reqId)}" title="Aceitar amizade">✓</button>
+                <button class="btn btn-sm btn-danger" data-float-reject="${this.escapeHtml(reqId)}" title="Recusar">✕</button>
+              </div>
+            </div>
+          `;
+        })
+        .join('')}
+
+      ${
+        pendingOut.length > 0
+          ? `<button class="floating-pending-out-bar" id="floating-btn-open-pending-out" title="Clique para gerenciar seus convites enviados">
+              <span>⏳ ${pendingOut.length} convite(s) enviado(s) pendente(s)</span>
+              <span>Ver ▸</span>
+            </button>`
+          : ''
+      }
+
+      ${
+        friendsIds.length === 0
+          ? `<div class="floating-friends-empty">
+              <div>🤝 Você ainda não tem amigos na lista.</div>
+              <div style="margin-top: 3px; font-size: 0.66rem; color: var(--text-muted);">
+                Envie um convite abaixo usando o <strong>@nick</strong> de identificação do seu amigo!
+              </div>
+            </div>`
+          : enrichedFriends.length === 0
+            ? `<div class="floating-friends-empty">
+                🔍 Nenhum amigo encontrado para "${this.escapeHtml(this.friendsFilterQuery)}".
+              </div>`
+            : enrichedFriends
+                .map((friend) => {
+                  const isVisitingThem = this.room?.hostUserId === friend.userId;
+                  const isInMyRoom =
+                    friend.currentRoomHostId === this.profile!.id ||
+                    (isMyRoom &&
+                      this.room?.players.some((p) => p.userId === friend.userId));
+                  const isAwayVisitingOther = Boolean(
+                    friend.currentRoomHostId &&
+                      friend.currentRoomHostId !== friend.userId &&
+                      !isInMyRoom
+                  );
+
+                  const subStatus = isVisitingThem
+                    ? '📍 Você está aqui'
+                    : isInMyRoom
+                      ? '🤝 Na sua sala'
+                      : isAwayVisitingOther
+                        ? '🪧 Volto já'
+                        : friend.workStatus
+                          ? `🪧 ${friend.workStatus}`
+                          : friend.isOnline
+                            ? '🟢 Online'
+                            : '⚫ Offline';
+
+                  return `
+                    <div class="floating-friend-row ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''}">
+                      <div class="floating-friend-left">
+                        <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
+                        <span class="floating-friend-avatar">${friend.icon}</span>
+                        <div class="floating-friend-info">
+                          <div class="floating-friend-name" title="${this.escapeHtml(friend.displayName)} (@${this.escapeHtml(friend.username)})">
+                            ${this.escapeHtml(friend.displayName)}
+                          </div>
+                          <div class="floating-friend-sub" title="@${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}">
+                            @${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="floating-friend-actions">
+                        ${
+                          isVisitingThem
+                            ? `<span class="floating-visit-tag">📍 Aqui</span>`
+                            : friend.isOnline && friend.hostStatus === 'DND'
+                              ? `<button class="btn btn-sm btn-gold" data-float-drop="${this.escapeHtml(friend.userId)}" title="Modo DND — Deixar café com Post-it">📫</button>
+                                 <button class="btn btn-sm btn-primary" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">🚀</button>`
+                              : `<button class="btn btn-sm ${friend.isOnline ? 'btn-primary' : ''}" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">
+                                  ${friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                                </button>`
+                        }
+                      </div>
+                    </div>
+                  `;
+                })
+                .join('')
+      }
+    `;
+
+    document.getElementById('floating-btn-return-home')?.addEventListener('click', () => {
+      this.socket.emit('room:leave_visit');
+    });
+
+    document.getElementById('floating-btn-open-pending-out')?.addEventListener('click', () => {
+      this.openPendingFriendsShortcut();
+    });
+
+    listEl.querySelectorAll('[data-float-accept]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const targetId = (btn as HTMLElement).dataset.quickFriend!;
-        const entry = this.directory.find((d) => d.userId === targetId);
-        if (!entry || !this.profile) return;
+        const requesterUserId = (btn as HTMLElement).dataset.floatAccept!;
+        this.socket.emit('friends:respond', { requesterUserId, accept: true });
+      });
+    });
 
-        if (this.room?.hostUserId === targetId) {
-          this.showToast('info', `📍 Você já está no cantinho de ${entry.displayName}!`);
-          return;
-        }
+    listEl.querySelectorAll('[data-float-reject]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const requesterUserId = (btn as HTMLElement).dataset.floatReject!;
+        this.socket.emit('friends:respond', { requesterUserId, accept: false });
+      });
+    });
 
-        const isFriend = entry.isBot || this.profile.friends.includes(targetId);
-        if (!isFriend) {
-          if (this.profile.pendingIncomingFriends?.includes(targetId)) {
-            this.socket.emit('friends:respond', { requesterUserId: targetId, accept: true });
-            return;
-          }
-          if (this.profile.pendingOutgoingFriends?.includes(targetId)) {
-            this.openPendingFriendsShortcut();
-            return;
-          }
-          this.socket.emit('friends:add', { usernameOrId: `@${entry.username}` });
-          return;
-        }
+    listEl.querySelectorAll('[data-float-visit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetUserId = (btn as HTMLElement).dataset.floatVisit!;
+        this.socket.emit('room:visit', { targetUserId });
+      });
+    });
 
-        if (entry.hostStatus === 'DND') {
-          this.socket.emit('player:interact', {
-            targetUserId: targetId,
-            actionType: 'DESK_DROP',
-            note: 'Passei pra dar um oi, bom trabalho hoje! ☕',
-          });
-          return;
-        }
-
-        this.socket.emit('room:visit', { targetUserId: targetId });
+    listEl.querySelectorAll('[data-float-drop]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetUserId = (btn as HTMLElement).dataset.floatDrop!;
+        this.socket.emit('player:interact', {
+          targetUserId,
+          actionType: 'DESK_DROP',
+          note: 'Passei pra dar um oi, bom trabalho hoje! ☕',
+        });
       });
     });
   }
@@ -3424,12 +3736,11 @@ class PocketCornerApp {
   }
 
   // ------------------------------------------
-  // 2. POPUP "👥 AMIGOS" (Com Abas: Salas Online • Minha Sala • Adicionar)
+  // 2. POPUP "👥 AMIGOS" (Com Abas: Meus Amigos • Minha Sala • Amizades Pendentes)
   // ------------------------------------------
   private renderFriendsPopup() {
     if (!this.profile) return;
 
-    const otherOnline = this.directory.filter((d) => d.userId !== this.profile?.id);
     const pendingIn = this.profile.pendingIncomingFriends || [];
     const pendingOut = this.profile.pendingOutgoingFriends || [];
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
@@ -3438,12 +3749,43 @@ class PocketCornerApp {
 
     const totalPending = pendingIn.length + pendingOut.length;
     const friendsList = this.profile.friends || [];
+    const onlineFriendsCount = friendsList.filter((fid) =>
+      this.directory.some((d) => d.userId === fid)
+    ).length;
+
+    const filterQ = this.popupFriendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
+    const enrichedPopupFriends = friendsList
+      .map((fid) => {
+        const meta = this.resolveFriendMeta(fid);
+        const dirEntry = this.directory.find((d) => d.userId === fid);
+        return {
+          ...meta,
+          dirEntry,
+          isOnline: Boolean(dirEntry || meta.isOnline),
+          hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
+          workStatus: dirEntry?.workStatus || '',
+          doorPermission: dirEntry?.doorPermission || ('OPEN' as DoorPermission),
+          visitorCount: dirEntry?.visitorCount || 0,
+          currentRoomHostId: dirEntry?.currentRoomHostId,
+        };
+      })
+      .filter((f) => {
+        if (!filterQ) return true;
+        return (
+          f.displayName.toLowerCase().includes(filterQ) ||
+          f.username.toLowerCase().includes(filterQ)
+        );
+      })
+      .sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        return a.displayName.localeCompare(b.displayName, 'pt-BR');
+      });
 
     this.mountPopupWindow(`
           <div class="popup-header">
             <div class="popup-title">
               <span>👥</span>
-              <span>Amigos & Salas</span>
+              <span>Amizades & Minha Sala</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <button class="btn btn-sm" id="btn-copy-invite">🔗 Copiar Link Convite</button>
@@ -3453,13 +3795,13 @@ class PocketCornerApp {
 
           <div class="popup-tabs">
             <button class="popup-tab ${this.friendsTab === 'ONLINE' ? 'active' : ''}" data-friends-tab="ONLINE">
-              🟢 Salas Online (${otherOnline.length})
-            </button>
-            <button class="popup-tab ${this.friendsTab === 'MY_ROOM' ? 'active' : ''}" data-friends-tab="MY_ROOM">
-              🏠 Minha Sala (${visitors.length}/4)
+              🤝 Meus Amigos (${onlineFriendsCount}/${friendsList.length})
             </button>
             <button class="popup-tab ${this.friendsTab === 'REQUESTS' ? 'active' : ''}" data-friends-tab="REQUESTS">
               📨 Amizades Pendentes ${totalPending > 0 ? `(${totalPending})` : ''}
+            </button>
+            <button class="popup-tab ${this.friendsTab === 'MY_ROOM' ? 'active' : ''}" data-friends-tab="MY_ROOM">
+              🏠 Minha Sala (${visitors.length}/4)
             </button>
           </div>
 
@@ -3467,72 +3809,107 @@ class PocketCornerApp {
             ${
               this.friendsTab === 'ONLINE'
                 ? `
+                  <!-- Barra rápida para mandar convite utilizando o @nick de identificação -->
+                  <div class="item-card" style="flex-wrap: wrap; background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3);">
+                    <div class="item-info" style="min-width: 190px;">
+                      <div class="item-name">
+                        ➕ Convidar Amigo pelo @nick • <span style="font-weight: 500; font-size: 0.72rem; color: var(--text-secondary);">Seu nick: <strong style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</strong></span>
+                      </div>
+                      <div class="item-sub">Apenas seus amigos aparecem na lista. Envie convite pelo @nick de identificação:</div>
+                    </div>
+                    <div style="display: flex; gap: 6px; flex: 1; min-width: 240px;">
+                      <input
+                        type="text"
+                        id="input-friend-username"
+                        class="chat-input-minimal"
+                        style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px;"
+                        placeholder="Digite o @nick do amigo (ex: @Rick)..."
+                      />
+                      <button class="btn btn-sm btn-primary" id="btn-add-friend">📨 Convidar</button>
+                      <button class="btn btn-sm" id="btn-copy-my-id" title="Copiar seu @nick">📋</button>
+                    </div>
+                  </div>
+
+                  <!-- Filtro por nome + Bot Pipoca -->
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <span style="font-size: 0.76rem; color: var(--text-secondary);">
-                      Visite o cantinho de um amigo ou chame o Bot Pipoca para testar:
-                    </span>
+                    <input
+                      type="text"
+                      id="popup-friends-filter-input"
+                      class="chat-input-minimal"
+                      value="${this.escapeHtml(this.popupFriendsFilterQuery)}"
+                      style="flex: 1; min-width: 200px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 7px 12px;"
+                      placeholder="🔍 Filtrar amigo por nome ou @nick..."
+                    />
                     <button class="btn btn-sm btn-primary" id="btn-summon-bot">
                       🐦 Chamar Pipoca (Bot)
                     </button>
                   </div>
 
-                  <div class="items-grid">
-                    ${otherOnline
-                      .map((entry) => {
-                        const bodyItem = getCosmeticById(entry.equipped.avatar_body);
-                        const isVisitingThem = this.room?.hostUserId === entry.userId;
-                        const isInMyRoom =
-                          entry.currentRoomHostId === this.profile!.id ||
-                          (isMyRoom &&
-                            this.room?.players.some((p) => p.userId === entry.userId));
-                        const isFriend =
-                          entry.isBot || this.profile!.friends.includes(entry.userId);
-                        const isPendingOut = pendingOut.includes(entry.userId);
-                        const isPendingIn = pendingIn.includes(entry.userId);
+                  <!-- Lista Vertical de Amigos (um abaixo do outro) -->
+                  <div style="display: flex; flex-direction: column; gap: 8px;" id="popup-friends-vertical-list">
+                    ${
+                      friendsList.length === 0
+                        ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 14px 4px; text-align: center;">
+                            🤝 Você ainda não tem amigos adicionados. Use o campo acima para mandar um convite pelo <strong>@nick</strong>!
+                          </div>`
+                        : enrichedPopupFriends.length === 0
+                          ? `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 14px 4px; text-align: center;">
+                              🔍 Nenhum amigo encontrado para "${this.escapeHtml(this.popupFriendsFilterQuery)}".
+                            </div>`
+                          : enrichedPopupFriends
+                              .map((friend) => {
+                                const isVisitingThem = this.room?.hostUserId === friend.userId;
+                                const isInMyRoom =
+                                  friend.currentRoomHostId === this.profile!.id ||
+                                  (isMyRoom &&
+                                    this.room?.players.some((p) => p.userId === friend.userId));
 
-                        return `
-                          <div class="item-card">
-                            <div class="item-icon">${bodyItem?.icon || '🧑'}</div>
-                            <div class="item-info">
-                              <div class="item-name">${this.escapeHtml(entry.displayName)}</div>
-                              <div class="item-sub">
-                                @${this.escapeHtml(entry.username)} • ${entry.visitorCount}/4
-                              </div>
-                              ${
-                                entry.workStatus
-                                  ? `<div style="font-size: 0.68rem; color: var(--accent-gold); margin-top: 2px;">
-                                      🪧 ${this.escapeHtml(entry.workStatus)}
-                                    </div>`
-                                  : ''
-                              }
-                            </div>
-                            <div style="display: flex; gap: 6px; align-items: center;">
-                              ${
-                                isInMyRoom
-                                  ? `<button class="btn btn-sm btn-danger" data-kick-visitor="${entry.userId}" title="Expulsar da sua sala">👢 Expulsar</button>`
-                                  : ''
-                              }
-                              ${
-                                isVisitingThem
-                                  ? `<span style="font-size: 0.7rem; color: var(--accent-cyan);">Na sala</span>`
-                                    : !isFriend
-                                      ? isPendingIn
-                                        ? `<button class="btn btn-sm btn-gold" data-accept-friend="${entry.userId}">✓ Aceitar</button>`
-                                        : isPendingOut
-                                          ? `<button class="btn btn-sm" data-cancel-friend="${entry.userId}" title="Convite enviado — clique para cancelar">⏳ Pendente</button>`
-                                          : `<button class="btn btn-sm" data-request-friend="@${this.escapeHtml(entry.username)}">📨 +Amigo</button>`
-                                      : entry.hostStatus === 'DND'
-                                        ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${entry.userId}">📫 Presente</button>`
-                                        : `<button class="btn btn-sm btn-primary" data-visit-user="${entry.userId}">
-                                            ${entry.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
-                                          </button>`
-                                }
-                              </div>
-                            </div>
-                          `;
-                        })
-                        .join('')}
-                    </div>
+                                return `
+                                  <div class="item-card" data-popup-friend-row="${this.escapeHtml(friend.displayName.toLowerCase())} ${this.escapeHtml(friend.username.toLowerCase())}">
+                                    <div class="item-icon">${friend.icon}</div>
+                                    <div class="item-info">
+                                      <div class="item-name" style="display: flex; align-items: center; gap: 6px;">
+                                        <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
+                                        <span>${this.escapeHtml(friend.displayName)}</span>
+                                      </div>
+                                      <div class="item-sub">
+                                        @${this.escapeHtml(friend.username)} • ${
+                                          friend.isOnline
+                                            ? `<span style="color: #4ade80;">🟢 Online (${friend.visitorCount}/4)</span>`
+                                            : `<span style="color: var(--text-muted);">⚫ Offline</span>`
+                                        }
+                                      </div>
+                                      ${
+                                        friend.workStatus
+                                          ? `<div style="font-size: 0.68rem; color: var(--accent-gold); margin-top: 2px;">
+                                              🪧 ${this.escapeHtml(friend.workStatus)}
+                                            </div>`
+                                          : ''
+                                      }
+                                    </div>
+                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                      ${
+                                        isInMyRoom
+                                          ? `<button class="btn btn-sm btn-danger" data-kick-visitor="${this.escapeHtml(friend.userId)}" title="Expulsar da sua sala">👢 Expulsar</button>`
+                                          : ''
+                                      }
+                                      ${
+                                        isVisitingThem
+                                          ? `<span style="font-size: 0.72rem; font-weight: 700; color: var(--accent-cyan);">📍 Na sala</span>`
+                                          : friend.isOnline && friend.hostStatus === 'DND'
+                                            ? `<button class="btn btn-sm btn-gold" data-drop-mailbox="${this.escapeHtml(friend.userId)}">📫 Presente</button>
+                                               <button class="btn btn-sm btn-primary" data-visit-user="${this.escapeHtml(friend.userId)}">🚀 Visitar</button>`
+                                            : `<button class="btn btn-sm ${friend.isOnline ? 'btn-primary' : ''}" data-visit-user="${this.escapeHtml(friend.userId)}">
+                                                ${friend.isOnline && friend.doorPermission === 'KNOCK' ? '🔔 Bater' : '🚀 Visitar'}
+                                              </button>`
+                                      }
+                                    </div>
+                                  </div>
+                                `;
+                              })
+                              .join('')
+                    }
+                  </div>
                   `
                   : this.friendsTab === 'MY_ROOM'
                     ? `
@@ -3623,10 +4000,10 @@ class PocketCornerApp {
                       <!-- Aba Amizades Pendentes & Adicionar -->
                       <div class="item-card" style="background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3);">
                         <div class="item-info">
-                          <div class="item-name">Seu ID Único Permanente: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
-                          <div class="item-sub">Passe esse @ID para seus amigos te adicionarem (esse valor é fixo e nunca muda)</div>
+                          <div class="item-name">Seu Nick de Identificação: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
+                          <div class="item-sub">Passe esse @nick para seus amigos te enviarem convite (esse valor é fixo e único)</div>
                         </div>
-                        <button class="btn btn-sm btn-primary" id="btn-copy-my-id">📋 Copiar @ID</button>
+                        <button class="btn btn-sm btn-primary" id="btn-copy-my-id">📋 Copiar @nick</button>
                       </div>
 
                       <div style="display: flex; gap: 8px;">
@@ -3635,7 +4012,7 @@ class PocketCornerApp {
                           id="input-friend-username"
                           class="chat-input-minimal"
                           style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                          placeholder="Digite o @ID ou nome de usuário do amigo (ex: @Rick ou Rick)..."
+                          placeholder="Digite o @nick de identificação do amigo (ex: @Rick ou Rick)..."
                         />
                         <button class="btn btn-primary" id="btn-add-friend">📨 Enviar Convite</button>
                       </div>
@@ -3651,7 +4028,7 @@ class PocketCornerApp {
                               ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
                                   Nenhum pedido de amizade recebido no momento.
                                 </div>`
-                              : `<div class="items-grid">
+                              : `<div style="display: flex; flex-direction: column; gap: 8px;">
                                   ${pendingIn
                                     .map((reqId) => {
                                       const meta = this.resolveFriendMeta(reqId);
@@ -3684,7 +4061,7 @@ class PocketCornerApp {
                               ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
                                   Nenhum convite enviado aguardando aceitação.
                                 </div>`
-                              : `<div class="items-grid">
+                              : `<div style="display: flex; flex-direction: column; gap: 8px;">
                                   ${pendingOut
                                     .map((targetId) => {
                                       const meta = this.resolveFriendMeta(targetId);
@@ -3697,48 +4074,6 @@ class PocketCornerApp {
                                           </div>
                                           <div style="display: flex; gap: 6px;">
                                             <button class="btn btn-sm btn-danger" data-cancel-friend="${this.escapeHtml(targetId)}" title="Cancelar convite enviado">✕ Cancelar</button>
-                                          </div>
-                                        </div>
-                                      `;
-                                    })
-                                    .join('')}
-                                </div>`
-                          }
-                        </div>
-
-                        <!-- 3. Meus Amigos Confirmados -->
-                        <div>
-                          <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">
-                            🤝 Meus Amigos (${friendsList.length})
-                          </div>
-                          ${
-                            friendsList.length === 0
-                              ? `<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0;">
-                                  Você ainda não adicionou amigos. Envie um convite pelo @ID acima ou clique em "+Amigo" na aba Salas Online!
-                                </div>`
-                              : `<div class="items-grid">
-                                  ${friendsList
-                                    .map((friendId) => {
-                                      const meta = this.resolveFriendMeta(friendId);
-                                      return `
-                                        <div class="item-card">
-                                          <div class="item-icon">${meta.icon}</div>
-                                          <div class="item-info">
-                                            <div class="item-name">${this.escapeHtml(meta.displayName)}</div>
-                                            <div class="item-sub">
-                                              @${this.escapeHtml(meta.username)} • ${
-                                                meta.isOnline
-                                                  ? '<span style="color: #4ade80;">🟢 Online</span>'
-                                                  : '<span style="color: var(--text-muted);">⚫ Offline</span>'
-                                              }
-                                            </div>
-                                          </div>
-                                          <div style="display: flex; gap: 6px;">
-                                            ${
-                                              meta.isOnline
-                                                ? `<button class="btn btn-sm btn-primary" data-visit-user="${this.escapeHtml(friendId)}">🚀 Visitar</button>`
-                                                : ''
-                                            }
                                           </div>
                                         </div>
                                       `;
@@ -3766,10 +4101,23 @@ class PocketCornerApp {
         });
       });
 
+      const popupFilterInp = document.getElementById(
+        'popup-friends-filter-input'
+      ) as HTMLInputElement | null;
+      popupFilterInp?.addEventListener('input', () => {
+        this.popupFriendsFilterQuery = popupFilterInp.value;
+        const qClean = this.popupFriendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
+        this.modalRootEl.querySelectorAll('[data-popup-friend-row]').forEach((el) => {
+          const row = el as HTMLElement;
+          const haystack = row.dataset.popupFriendRow || '';
+          row.style.display = !qClean || haystack.includes(qClean) ? 'flex' : 'none';
+        });
+      });
+
       document.getElementById('btn-copy-my-id')?.addEventListener('click', () => {
         const myTag = `@${this.profile?.username || ''}`;
         navigator.clipboard.writeText(myTag).then(() => {
-          this.showToast('success', `📋 Seu ID único (${myTag}) foi copiado!`);
+          this.showToast('success', `📋 Seu nick de identificação (${myTag}) foi copiado!`);
         });
       });
 
@@ -3798,7 +4146,7 @@ class PocketCornerApp {
         if (cleanVal.length < 2) {
           this.showToast(
             'warning',
-            'Digite o @ID único do amigo (exemplo: @Rick ou Rick).'
+            'Digite o @nick de identificação do amigo (exemplo: @Rick ou Rick).'
           );
           return;
         }

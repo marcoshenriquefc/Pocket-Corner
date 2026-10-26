@@ -1671,5 +1671,380 @@ body.transparent-overlay .ambient-sound-bar {
   font-weight: 700 !important;
 }
 
+.status-dot.OFFLINE {
+  background: #475569;
+  opacity: 0.75;
+}
+
+/* ==========================================
+   Lista Flutuante de Amizades (Vertical, 1 abaixo do outro + Filtro + Convite por @nick)
+   ========================================== */
+.floating-friends-panel {
+  position: fixed;
+  top: 78px;
+  right: 18px;
+  width: 286px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.65);
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.18s ease, box-shadow 0.18s ease;
+}
+
+.floating-friends-panel.collapsed {
+  width: 220px;
+}
+
+.floating-friends-panel.collapsed .floating-friends-body {
+  display: none;
+}
+
+.floating-friends-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  background: rgba(30, 41, 59, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: grab;
+  user-select: none;
+}
+
+.floating-friends-panel.collapsed .floating-friends-header {
+  border-bottom: none;
+}
+
+.floating-friends-header:active {
+  cursor: grabbing;
+}
+
+.floating-friends-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.floating-friends-count {
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(74, 222, 128, 0.16);
+  border: 1px solid rgba(74, 222, 128, 0.38);
+  color: #86efac;
+}
+
+.floating-friends-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.floating-pending-badge {
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(250, 204, 21, 0.65);
+  background: rgba(250, 204, 21, 0.2);
+  color: #fef08a;
+}
+
+.floating-pending-badge.has-outgoing {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+}
+
+.floating-collapse-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.floating-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.floating-friends-body {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+}
+
+.floating-friends-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.floating-friends-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  padding: 6px 26px 6px 10px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.73rem;
+  outline: none;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.floating-friends-search-input:focus {
+  border-color: var(--accent-cyan);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.floating-friends-clear-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.floating-friends-clear-btn:hover {
+  color: var(--text-primary);
+}
+
+.floating-friends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 255px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.floating-return-home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.55);
+  color: #e0e7ff;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.floating-return-home-btn:hover {
+  background: rgba(99, 102, 241, 0.34);
+}
+
+.floating-friend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.floating-friend-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.floating-friend-row.active-room {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+
+.floating-friend-row.in-my-room {
+  border-color: rgba(74, 222, 128, 0.45);
+}
+
+.floating-friend-row.is-pending-incoming {
+  background: rgba(250, 204, 21, 0.09);
+  border-color: rgba(250, 204, 21, 0.45);
+}
+
+.floating-friend-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.floating-friend-avatar {
+  font-size: 1.05rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.floating-friend-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.floating-friend-name {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floating-friend-sub {
+  font-size: 0.63rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.floating-friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.floating-visit-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.floating-pending-out-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #bae6fd;
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.floating-pending-out-bar:hover {
+  background: rgba(56, 189, 248, 0.18);
+}
+
+.floating-friends-empty {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 12px 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.floating-friends-invite-box {
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.floating-friends-invite-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.floating-my-nick-pill {
+  font-family: var(--font-sans);
+  font-size: 0.63rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  border-radius: 999px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+
+.floating-my-nick-pill:hover {
+  background: rgba(56, 189, 248, 0.22);
+}
+
+.floating-friends-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.floating-friends-invite-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 5px 9px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  outline: none;
+}
+
+.floating-friends-invite-input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 900px) {
+  .floating-friends-panel {
+    top: auto;
+    bottom: 74px;
+    right: 12px;
+    width: 268px;
+  }
+}
+
+
 
 
