@@ -240,6 +240,9 @@ class PocketCornerApp {
   private floatingFriendsCompact = localStorage.getItem('pc_friends_compact') === '1';
   private knownOnlineFriendIds = new Set<string>();
   private hasInitializedOnlineFriends = false;
+  private pendingAddFriendParam: string | null = null;
+  private nickLookupTimer: number | null = null;
+  private showMyVisitCardPopover = false;
 
   // DOM references
   private topbarEl!: HTMLElement;
@@ -263,6 +266,10 @@ class PocketCornerApp {
     const urlVisit = params.get('visit');
     if (urlVisit) {
       this.pendingVisitParam = urlVisit;
+    }
+    const urlAddFriend = params.get('addFriend');
+    if (urlAddFriend) {
+      this.pendingAddFriendParam = urlAddFriend.replace(/^@+/, '').trim();
     }
 
     const saved = this.loadSavedSession();
@@ -682,11 +689,17 @@ class PocketCornerApp {
 
             <div class="floating-friends-invite-box">
               <div class="floating-friends-invite-top">
-                <span>➕ Mandar convite pelo @nick</span>
-                <button class="floating-my-nick-pill" id="floating-copy-my-nick" title="Clique para copiar seu @nick de identificação">
-                  📋 Meu nick
-                </button>
+                <span>➕ Convite pelo @nick</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <button class="floating-my-nick-pill" id="floating-copy-my-nick" title="Clique para copiar seu @nick de identificação">
+                    📋 Meu nick
+                  </button>
+                  <button class="floating-my-nick-pill is-card-btn" id="floating-toggle-my-card" title="Abrir Cartão de Visita / Link Rápido de Amizade">
+                    🪪 Link
+                  </button>
+                </div>
               </div>
+              <div class="floating-visit-card" id="floating-my-visit-card" style="display: none;"></div>
               <div class="floating-friends-invite-row">
                 <input
                   type="text"
@@ -707,6 +720,7 @@ class PocketCornerApp {
                   🛡️
                 </button>
               </div>
+              <div class="nick-lookup-feedback" id="floating-nick-lookup-hint" style="display: none;"></div>
             </div>
           </div>
         </aside>
@@ -977,6 +991,7 @@ class PocketCornerApp {
       }
       this.socket.emit('friends:add', { usernameOrId: `@${cleanVal}` });
       if (inp) inp.value = '';
+      this.clearNickLookupFeedback();
     };
 
     document.getElementById('floating-add-friend-btn')?.addEventListener('click', sendFloatingFriendInvite);
@@ -989,8 +1004,15 @@ class PocketCornerApp {
       if (!cleanVal) return;
       this.socket.emit('room:visit', { targetUserId: cleanVal });
       if (inp) inp.value = '';
+      this.clearNickLookupFeedback();
     });
-    document.getElementById('floating-add-friend-input')?.addEventListener('keydown', (e) => {
+    const floatingAddInp = document.getElementById(
+      'floating-add-friend-input'
+    ) as HTMLInputElement | null;
+    floatingAddInp?.addEventListener('input', () => {
+      this.triggerNickLookup(floatingAddInp.value);
+    });
+    floatingAddInp?.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
@@ -1004,6 +1026,11 @@ class PocketCornerApp {
       navigator.clipboard.writeText(myTag).then(() => {
         this.showToast('success', `📋 Seu nick de identificação (${myTag}) foi copiado!`);
       });
+    });
+
+    document.getElementById('floating-toggle-my-card')?.addEventListener('click', () => {
+      this.showMyVisitCardPopover = !this.showMyVisitCardPopover;
+      this.renderFloatingMyVisitCard();
     });
 
     this.setupFloatingFriendsDrag();
@@ -1212,6 +1239,7 @@ class PocketCornerApp {
         JSON.stringify(prev.equipped) !== JSON.stringify(profile.equipped) ||
         JSON.stringify(prev.placedFurniture) !== JSON.stringify(profile.placedFurniture) ||
         JSON.stringify(prev.friends) !== JSON.stringify(profile.friends) ||
+        JSON.stringify(prev.favoriteFriends) !== JSON.stringify(profile.favoriteFriends) ||
         JSON.stringify(prev.pendingIncomingFriends) !==
           JSON.stringify(profile.pendingIncomingFriends) ||
         JSON.stringify(prev.pendingOutgoingFriends) !==
@@ -1250,6 +1278,19 @@ class PocketCornerApp {
 
       if (this.activeModal !== 'NONE' && structuralChange) {
         this.renderActiveModal();
+      }
+
+      if (this.pendingAddFriendParam) {
+        const target = this.pendingAddFriendParam;
+        this.pendingAddFriendParam = null;
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch {}
+        if (target.toLowerCase() !== profile.username.toLowerCase()) {
+          setTimeout(() => {
+            this.socket.emit('friends:add', { usernameOrId: `@${target}` });
+          }, 350);
+        }
       }
 
       if (this.pendingVisitParam) {
@@ -1463,6 +1504,27 @@ class PocketCornerApp {
           5500
         );
       }
+    });
+
+    this.socket.on('friends:room_invite_alert', (payload) => {
+      this.showMsnFriendPopup({
+        kind: 'ROOM_INVITE',
+        userId: payload.fromUserId,
+        username: payload.fromUsername,
+        displayName: payload.fromDisplayName,
+        avatarBody: payload.fromAvatarBody,
+      });
+      if (this.profile) {
+        this.renderer.showAmbientThought(
+          this.profile.id,
+          `📣 @${payload.fromUsername} está me chamando para visitar o cantinho dele!`,
+          6000
+        );
+      }
+    });
+
+    this.socket.on('friends:lookup_result', (payload) => {
+      this.updateNickLookupFeedback(payload);
     });
 
     this.socket.on('system:toast', ({ type, message }) => {
@@ -2574,7 +2636,164 @@ class PocketCornerApp {
       this.renderQuickFriendsStrip();
     });
 
+    this.renderFloatingMyVisitCard();
     this.renderFloatingFriendsListItems();
+  }
+
+  private getDirectFriendInviteUrl(): string {
+    const username = this.profile?.username || '';
+    return `${window.location.origin}${window.location.pathname}?addFriend=${encodeURIComponent(
+      username
+    )}`;
+  }
+
+  private copyDirectFriendLink() {
+    if (!this.profile) return;
+    const url = this.getDirectFriendInviteUrl();
+    navigator.clipboard.writeText(url).then(() => {
+      this.showToast(
+        'success',
+        `🔗 Link direto de amizade (?addFriend=${this.profile?.username}) copiado! Quem abrir já envia/aceita sua amizade automaticamente.`
+      );
+    });
+  }
+
+  private renderFloatingMyVisitCard() {
+    const cardEl = document.getElementById('floating-my-visit-card');
+    const toggleBtn = document.getElementById('floating-toggle-my-card');
+    if (!cardEl || !this.profile) return;
+
+    toggleBtn?.classList.toggle('active-card', this.showMyVisitCardPopover);
+    if (!this.showMyVisitCardPopover || this.floatingFriendsCompact) {
+      cardEl.style.display = 'none';
+      return;
+    }
+
+    const bodyItem = getCosmeticById(this.profile.equipped.avatar_body);
+    const avatarIcon = bodyItem?.icon || '🧑';
+    const friendUrl = this.getDirectFriendInviteUrl();
+
+    cardEl.style.display = 'flex';
+    cardEl.innerHTML = `
+      <div class="visit-card-top">
+        <div class="visit-card-qr" title="Cartão de Visita Digital de @${this.escapeHtml(this.profile.username)}">
+          <div class="qr-matrix">
+            <span>▛▀▜</span>
+            <span>▌${avatarIcon}▐</span>
+            <span>▙▄▟</span>
+          </div>
+        </div>
+        <div class="visit-card-info">
+          <div class="visit-card-name">${this.escapeHtml(this.profile.displayName)}</div>
+          <div class="visit-card-nick">@${this.escapeHtml(this.profile.username)}</div>
+          <div class="visit-card-hint">Se o amigo abrir o link, o convite já é enviado/aceito!</div>
+        </div>
+      </div>
+      <div class="visit-card-actions">
+        <button class="btn btn-sm btn-primary" id="floating-card-copy-link" style="flex: 1;" title="${this.escapeHtml(friendUrl)}">
+          🔗 Copiar Link (?addFriend)
+        </button>
+        <button class="btn btn-sm" id="floating-card-copy-nick" title="Copiar apenas @${this.escapeHtml(this.profile.username)}">
+          📋 @nick
+        </button>
+      </div>
+    `;
+
+    document.getElementById('floating-card-copy-link')?.addEventListener('click', () => {
+      this.copyDirectFriendLink();
+    });
+    document.getElementById('floating-card-copy-nick')?.addEventListener('click', () => {
+      const myTag = `@${this.profile?.username || ''}`;
+      navigator.clipboard.writeText(myTag).then(() => {
+        this.showToast('success', `📋 Seu nick (${myTag}) foi copiado!`);
+      });
+    });
+  }
+
+  private triggerNickLookup(rawQuery: string) {
+    if (this.nickLookupTimer) {
+      window.clearTimeout(this.nickLookupTimer);
+      this.nickLookupTimer = null;
+    }
+
+    const clean = rawQuery.trim().replace(/^@+/, '').trim();
+    if (!clean) {
+      this.clearNickLookupFeedback();
+      return;
+    }
+
+    this.nickLookupTimer = window.setTimeout(() => {
+      this.nickLookupTimer = null;
+      this.socket?.emit('friends:lookup_nick', { query: clean });
+    }, 160);
+  }
+
+  private clearNickLookupFeedback() {
+    if (this.nickLookupTimer) {
+      window.clearTimeout(this.nickLookupTimer);
+      this.nickLookupTimer = null;
+    }
+    for (const id of ['floating-nick-lookup-hint', 'popup-nick-lookup-hint']) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+      }
+    }
+  }
+
+  private updateNickLookupFeedback(payload: {
+    query: string;
+    found: boolean;
+    userId?: string;
+    username?: string;
+    displayName?: string;
+    avatarBody?: string;
+    isOnline?: boolean;
+    isSelf?: boolean;
+    isAlreadyFriend?: boolean;
+    isPending?: boolean;
+  }) {
+    const cleanQuery = payload.query.replace(/^@+/, '').trim();
+    let html = '';
+    let stateClass = '';
+
+    if (!payload.found) {
+      stateClass = 'is-error';
+      html = `⚠️ Nenhum usuário com <strong>@${this.escapeHtml(cleanQuery)}</strong>`;
+    } else if (payload.isSelf) {
+      stateClass = 'is-info';
+      html = `ℹ️ Esse é o seu próprio @nick (<strong>@${this.escapeHtml(payload.username || cleanQuery)}</strong>)`;
+    } else if (payload.isAlreadyFriend) {
+      stateClass = 'is-info';
+      html = `🤝 <strong>@${this.escapeHtml(payload.username || '')}</strong> (${this.escapeHtml(payload.displayName || '')}) já é seu amigo!`;
+    } else if (payload.isPending) {
+      stateClass = 'is-info';
+      html = `⏳ Convite com <strong>@${this.escapeHtml(payload.username || '')}</strong> já está pendente`;
+    } else {
+      const icon = getCosmeticById(payload.avatarBody || 'body_human')?.icon || '🧑';
+      stateClass = 'is-found';
+      html = `✓ ${icon} <strong>@${this.escapeHtml(payload.username || '')}</strong> (${this.escapeHtml(
+        payload.displayName || ''
+      )}) • ${payload.isOnline ? '🟢 Online' : '⚫ Offline'}`;
+    }
+
+    for (const [inputId, hintId] of [
+      ['floating-add-friend-input', 'floating-nick-lookup-hint'],
+      ['input-friend-username', 'popup-nick-lookup-hint'],
+    ] as const) {
+      const inp = document.getElementById(inputId) as HTMLInputElement | null;
+      const hintEl = document.getElementById(hintId);
+      if (!hintEl) continue;
+      const currentVal = inp?.value.trim().replace(/^@+/, '').trim() || '';
+      if (!currentVal) {
+        hintEl.style.display = 'none';
+        continue;
+      }
+      hintEl.className = `nick-lookup-feedback ${stateClass}`;
+      hintEl.innerHTML = html;
+      hintEl.style.display = 'block';
+    }
   }
 
   private renderFloatingFriendsListItems() {
@@ -2587,6 +2806,7 @@ class PocketCornerApp {
     const pendingOut = this.profile.pendingOutgoingFriends || [];
     const friendsIds = this.profile.friends || [];
     const friendsSet = new Set(friendsIds);
+    const favoritesSet = new Set(this.profile.favoriteFriends || []);
     const targetIds = isAdmin
       ? Array.from(
           new Set([
@@ -2612,6 +2832,7 @@ class PocketCornerApp {
           ...meta,
           dirEntry,
           isConfirmedFriend: friendsSet.has(fid),
+          isFavorite: favoritesSet.has(fid),
           isOnline: Boolean(dirEntry || meta.isOnline),
           hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
           workStatus: dirEntry?.workStatus || '',
@@ -2627,6 +2848,7 @@ class PocketCornerApp {
         );
       })
       .sort((a, b) => {
+        if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
         if (a.isConfirmedFriend !== b.isConfirmedFriend) return a.isConfirmedFriend ? -1 : 1;
         return a.displayName.localeCompare(b.displayName, 'pt-BR');
@@ -2718,18 +2940,24 @@ class PocketCornerApp {
                             : '⚫ Offline';
 
                   return `
-                    <div class="floating-friend-row ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''}">
+                    <div class="floating-friend-row ${isVisitingThem ? 'active-room' : ''} ${isInMyRoom ? 'in-my-room' : ''} ${friend.isFavorite ? 'is-favorite' : ''}">
                       <div
                         class="floating-friend-avatar-wrap"
                         ${!isVisitingThem ? `data-float-avatar-visit="${this.escapeHtml(friend.userId)}"` : ''}
                       >
                         <span class="floating-friend-avatar">${friend.icon}</span>
                         <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
+                        ${friend.isFavorite ? `<span class="compact-fav-badge">⭐</span>` : ''}
                       </div>
                       <div class="floating-friend-details">
                         <div class="floating-friend-info">
                           <div class="floating-friend-name" title="${this.escapeHtml(friend.displayName)} (@${this.escapeHtml(friend.username)})">
-                            ${this.escapeHtml(friend.displayName)}
+                            <button
+                              class="friend-fav-star ${friend.isFavorite ? 'is-fav' : ''}"
+                              data-float-fav="${this.escapeHtml(friend.userId)}"
+                              title="${friend.isFavorite ? 'Remover dos Melhores Amigos' : '⭐ Fixar no topo (Melhor Amigo)'}"
+                            >${friend.isFavorite ? '⭐' : '☆'}</button>
+                            <span>${this.escapeHtml(friend.displayName)}</span>
                             ${!friend.isConfirmedFriend && isAdmin ? `<span style="font-size: 0.6rem; color: #facc15; margin-left: 3px;">🛡️ Sala</span>` : ''}
                           </div>
                           <div class="floating-friend-sub" title="@${this.escapeHtml(friend.username)} • ${this.escapeHtml(subStatus)}">
@@ -2744,6 +2972,11 @@ class PocketCornerApp {
                                 ? `<button class="btn btn-sm btn-gold" data-float-drop="${this.escapeHtml(friend.userId)}" title="Modo DND — Deixar café com Post-it">📫</button>
                                    <button class="btn btn-sm btn-primary" data-float-visit="${this.escapeHtml(friend.userId)}" title="Visitar cantinho de ${this.escapeHtml(friend.displayName)}">🚀</button>`
                                 : `
+                                   ${
+                                     friend.isOnline && !isInMyRoom
+                                       ? `<button class="btn btn-sm" data-float-invite-room="${this.escapeHtml(friend.userId)}" title="📣 Chamar ${this.escapeHtml(friend.displayName)} para visitar o seu cantinho">🏠</button>`
+                                       : ''
+                                   }
                                    ${
                                      friend.isOnline
                                        ? `<button class="btn btn-sm" data-float-wave="${this.escapeHtml(friend.userId)}" title="Mandar um 👋 Oi estilo MSN para ${this.escapeHtml(friend.displayName)}">👋</button>`
@@ -2791,6 +3024,14 @@ class PocketCornerApp {
       inp?.focus();
     });
 
+    listEl.querySelectorAll('[data-float-fav]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const friendUserId = (btn as HTMLElement).dataset.floatFav!;
+        this.socket.emit('friends:toggle_favorite', { friendUserId });
+      });
+    });
+
     listEl.querySelectorAll('[data-float-avatar-visit]').forEach((el) => {
       el.addEventListener('click', () => {
         if (!this.floatingFriendsCompact) return;
@@ -2819,6 +3060,14 @@ class PocketCornerApp {
       btn.addEventListener('click', () => {
         const targetUserId = (btn as HTMLElement).dataset.floatVisit!;
         this.socket.emit('room:visit', { targetUserId });
+      });
+    });
+
+    listEl.querySelectorAll('[data-float-invite-room]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetUserId = (btn as HTMLElement).dataset.floatInviteRoom!;
+        soundEngine.playFriendInviteSent();
+        this.socket.emit('friends:invite_to_room', { targetUserId });
       });
     });
 
@@ -3963,6 +4212,7 @@ class PocketCornerApp {
     ).length;
 
     const filterQ = this.popupFriendsFilterQuery.trim().toLowerCase().replace(/^@+/, '');
+    const favoritesSet = new Set(this.profile.favoriteFriends || []);
     const enrichedPopupFriends = popupTargetIds
       .map((fid) => {
         const meta = this.resolveFriendMeta(fid);
@@ -3971,6 +4221,7 @@ class PocketCornerApp {
           ...meta,
           dirEntry,
           isConfirmedFriend: friendsSet.has(fid),
+          isFavorite: favoritesSet.has(fid),
           isOnline: Boolean(dirEntry || meta.isOnline),
           hostStatus: dirEntry?.hostStatus || ('ACTIVE' as HostStatus),
           workStatus: dirEntry?.workStatus || '',
@@ -3987,6 +4238,8 @@ class PocketCornerApp {
         );
       })
       .sort((a, b) => {
+        // ⭐ Favoritos ficam sempre no topo (mesmo quando offline)
+        if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
         if (a.isConfirmedFriend !== b.isConfirmedFriend) return a.isConfirmedFriend ? -1 : 1;
         return a.displayName.localeCompare(b.displayName, 'pt-BR');
@@ -3999,7 +4252,8 @@ class PocketCornerApp {
               <span>Amizades & Minha Sala</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <button class="btn btn-sm" id="btn-copy-invite">🔗 Copiar Link Convite</button>
+              <button class="btn btn-sm" id="btn-copy-friend-link" title="Copiar link direto que envia/aceita amizade automaticamente">🪪 Link Amizade</button>
+              <button class="btn btn-sm" id="btn-copy-invite" title="Copiar link para visitarem sua sala">🔗 Link Visita</button>
               <button class="btn btn-icon" id="btn-close-modal">✕</button>
             </div>
           </div>
@@ -4034,21 +4288,24 @@ class PocketCornerApp {
                         }
                       </div>
                     </div>
-                    <div style="display: flex; gap: 6px; flex: 1; min-width: 240px;">
-                      <input
-                        type="text"
-                        id="input-friend-username"
-                        class="chat-input-minimal"
-                        style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px;"
-                        placeholder="Digite o @nick do amigo (ex: @Rick)..."
-                      />
-                      <button class="btn btn-sm btn-primary" id="btn-add-friend">📨 Convidar</button>
-                      ${
-                        isAdmin
-                          ? `<button class="btn btn-sm btn-gold" id="btn-admin-visit-nick" title="🛡️ Admin: Visitar qualquer sala pelo @nick">🛡️ Visitar</button>`
-                          : ''
-                      }
-                      <button class="btn btn-sm" id="btn-copy-my-id" title="Copiar seu @nick">📋</button>
+                    <div style="display: flex; flex-direction: column; flex: 1; min-width: 240px;">
+                      <div style="display: flex; gap: 6px; width: 100%;">
+                        <input
+                          type="text"
+                          id="input-friend-username"
+                          class="chat-input-minimal"
+                          style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px;"
+                          placeholder="Digite o @nick do amigo (ex: @Rick)..."
+                        />
+                        <button class="btn btn-sm btn-primary" id="btn-add-friend">📨 Convidar</button>
+                        ${
+                          isAdmin
+                            ? `<button class="btn btn-sm btn-gold" id="btn-admin-visit-nick" title="🛡️ Admin: Visitar qualquer sala pelo @nick">🛡️ Visitar</button>`
+                            : ''
+                        }
+                        <button class="btn btn-sm" id="btn-copy-my-id" title="Copiar seu @nick">📋 @nick</button>
+                      </div>
+                      <div class="nick-lookup-feedback" id="popup-nick-lookup-hint" style="display: none; margin-top: 4px;"></div>
                     </div>
                   </div>
 
@@ -4087,10 +4344,18 @@ class PocketCornerApp {
                                     this.room?.players.some((p) => p.userId === friend.userId));
 
                                 return `
-                                  <div class="item-card" data-popup-friend-row="${this.escapeHtml(friend.displayName.toLowerCase())} ${this.escapeHtml(friend.username.toLowerCase())}">
+                                  <div class="item-card ${friend.isFavorite ? 'is-favorite' : ''}" data-popup-friend-row="${this.escapeHtml(friend.displayName.toLowerCase())} ${this.escapeHtml(friend.username.toLowerCase())}">
                                     <div class="item-icon">${friend.icon}</div>
                                     <div class="item-info">
                                       <div class="item-name" style="display: flex; align-items: center; gap: 6px;">
+                                        <button
+                                          class="friend-fav-star ${friend.isFavorite ? 'is-fav' : ''}"
+                                          type="button"
+                                          data-popup-fav="${this.escapeHtml(friend.userId)}"
+                                          title="${friend.isFavorite ? 'Remover dos Melhores Amigos' : '⭐ Fixar nos Melhores Amigos (sempre no topo)'}"
+                                        >
+                                          ${friend.isFavorite ? '⭐' : '☆'}
+                                        </button>
                                         <span class="status-dot ${friend.isOnline ? friend.hostStatus : 'OFFLINE'}"></span>
                                         <span>${this.escapeHtml(friend.displayName)}</span>
                                         ${
@@ -4114,11 +4379,13 @@ class PocketCornerApp {
                                           : ''
                                       }
                                     </div>
-                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                                       ${
                                         isInMyRoom
                                           ? `<button class="btn btn-sm btn-danger" data-kick-visitor="${this.escapeHtml(friend.userId)}" title="Expulsar da sua sala">👢 Expulsar</button>`
-                                          : ''
+                                          : friend.isOnline
+                                            ? `<button class="btn btn-sm" data-invite-room="${this.escapeHtml(friend.userId)}" title="📣 Chamar para visitar a sua sala">🏠 Chamar</button>`
+                                            : ''
                                       }
                                       ${
                                         isVisitingThem
@@ -4225,23 +4492,29 @@ class PocketCornerApp {
                     `
                     : `
                       <!-- Aba Amizades Pendentes & Adicionar -->
-                      <div class="item-card" style="background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3);">
+                      <div class="item-card" style="background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.3); flex-wrap: wrap;">
                         <div class="item-info">
-                          <div class="item-name">Seu Nick de Identificação: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
-                          <div class="item-sub">Passe esse @nick para seus amigos te enviarem convite (esse valor é fixo e único)</div>
+                          <div class="item-name">🪪 Seu Cartão de Identificação: <span style="color: var(--accent-cyan);">@${this.escapeHtml(this.profile.username)}</span></div>
+                          <div class="item-sub">Passe seu @nick ou o link direto de amizade — quem abrir o link adiciona você automaticamente!</div>
                         </div>
-                        <button class="btn btn-sm btn-primary" id="btn-copy-my-id">📋 Copiar @nick</button>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                          <button class="btn btn-sm" id="btn-copy-my-id">📋 Copiar @nick</button>
+                          <button class="btn btn-sm btn-primary" id="btn-copy-friend-link-tab">🔗 Copiar Link Direto</button>
+                        </div>
                       </div>
 
-                      <div style="display: flex; gap: 8px;">
-                        <input
-                          type="text"
-                          id="input-friend-username"
-                          class="chat-input-minimal"
-                          style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
-                          placeholder="Digite o @nick de identificação do amigo (ex: @Rick ou Rick)..."
-                        />
-                        <button class="btn btn-primary" id="btn-add-friend">📨 Enviar Convite</button>
+                      <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; gap: 8px;">
+                          <input
+                            type="text"
+                            id="input-friend-username"
+                            class="chat-input-minimal"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px;"
+                            placeholder="Digite o @nick de identificação do amigo (ex: @Rick ou Rick)..."
+                          />
+                          <button class="btn btn-primary" id="btn-add-friend">📨 Enviar Convite</button>
+                        </div>
+                        <div class="nick-lookup-feedback" id="popup-nick-lookup-hint" style="display: none;"></div>
                       </div>
 
                       <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 4px;">
@@ -4348,6 +4621,13 @@ class PocketCornerApp {
         });
       });
 
+      document.getElementById('btn-copy-friend-link')?.addEventListener('click', () => {
+        this.copyDirectFriendLink();
+      });
+      document.getElementById('btn-copy-friend-link-tab')?.addEventListener('click', () => {
+        this.copyDirectFriendLink();
+      });
+
       document.getElementById('btn-copy-invite')?.addEventListener('click', () => {
         const url = `${window.location.origin}${window.location.pathname}?visit=${encodeURIComponent(
           this.profile?.username || ''
@@ -4379,6 +4659,7 @@ class PocketCornerApp {
         }
         this.socket.emit('friends:add', { usernameOrId: `@${cleanVal}` });
         inp.value = '';
+        this.clearNickLookupFeedback();
       };
 
       document.getElementById('btn-add-friend')?.addEventListener('click', sendFriendReq);
@@ -4391,11 +4672,35 @@ class PocketCornerApp {
         this.socket.emit('room:visit', { targetUserId: cleanVal });
         this.closeModal();
       });
-      document.getElementById('input-friend-username')?.addEventListener('keydown', (e) => {
+      const popupFriendInput = document.getElementById('input-friend-username') as HTMLInputElement | null;
+      popupFriendInput?.addEventListener('input', () => {
+        this.triggerNickLookup(popupFriendInput.value);
+      });
+      popupFriendInput?.addEventListener('keydown', (e) => {
         if ((e as KeyboardEvent).key === 'Enter') {
           e.preventDefault();
           sendFriendReq();
         }
+      });
+
+      this.modalRootEl.querySelectorAll('[data-popup-fav]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const friendUserId = (btn as HTMLElement).dataset.popupFav!;
+          this.socket.emit('friends:toggle_favorite', { friendUserId });
+        });
+      });
+
+      this.modalRootEl.querySelectorAll('[data-invite-room]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const el = btn as HTMLButtonElement;
+          const targetUserId = el.dataset.inviteRoom!;
+          soundEngine.playWaveHello();
+          this.socket.emit('friends:invite_to_room', { targetUserId });
+          el.disabled = true;
+          el.textContent = '✓ Chamado!';
+        });
       });
 
     this.modalRootEl.querySelectorAll('[data-status]').forEach((btn) => {
@@ -5740,7 +6045,7 @@ class PocketCornerApp {
   }
 
   private showMsnFriendPopup(opts: {
-    kind: 'ONLINE' | 'WAVE';
+    kind: 'ONLINE' | 'WAVE' | 'ROOM_INVITE';
     userId: string;
     username?: string;
     displayName?: string;
@@ -5755,6 +6060,8 @@ class PocketCornerApp {
 
     if (opts.kind === 'ONLINE') {
       soundEngine.playFriendOnlineMsn();
+    } else if (opts.kind === 'ROOM_INVITE') {
+      soundEngine.playFriendRequestAlert();
     } else {
       soundEngine.playWaveHello();
     }
@@ -5765,13 +6072,28 @@ class PocketCornerApp {
     if (existing) existing.remove();
 
     const card = document.createElement('div');
-    card.className = `msn-online-toast ${opts.kind === 'WAVE' ? 'is-wave' : 'is-online'}`;
+    const kindClass =
+      opts.kind === 'ROOM_INVITE'
+        ? 'is-room-invite'
+        : opts.kind === 'WAVE'
+          ? 'is-wave'
+          : 'is-online';
+    card.className = `msn-online-toast ${kindClass}`;
     card.dataset.msnToastUser = opts.userId;
+
+    const messageText =
+      opts.kind === 'ROOM_INVITE'
+        ? '📣 Está te chamando para visitar o cantinho dele!'
+        : opts.kind === 'WAVE'
+          ? '👋 Mandou um "Oi!" pra você no cantinho!'
+          : '🟢 Acabou de entrar no cantinho!';
+
+    const visitLabel = opts.kind === 'ROOM_INVITE' ? '🚀 Ir Agora' : '🚀 Visitar';
 
     card.innerHTML = `
       <div class="msn-toast-header">
         <div class="msn-toast-brand">
-          <span>🟢</span>
+          <span>${opts.kind === 'ROOM_INVITE' ? '📣' : '🟢'}</span>
           <span>Pocket Messenger</span>
         </div>
         <button class="msn-toast-close" type="button" title="Fechar">✕</button>
@@ -5787,15 +6109,11 @@ class PocketCornerApp {
             <span class="msn-toast-nick">@${this.escapeHtml(username)}</span>
           </div>
           <div class="msn-toast-message">
-            ${
-              opts.kind === 'WAVE'
-                ? '👋 Mandou um "Oi!" pra você no cantinho!'
-                : '🟢 Acabou de entrar no cantinho!'
-            }
+            ${messageText}
           </div>
           <div class="msn-toast-actions">
             <button class="btn btn-sm btn-primary msn-btn-visit" type="button">
-              🚀 Visitar
+              ${visitLabel}
             </button>
             <button class="btn btn-sm msn-btn-wave" type="button">
               ${opts.kind === 'WAVE' ? '👋 Retribuir Oi' : '👋 Dar Oi'}
@@ -5812,7 +6130,10 @@ class PocketCornerApp {
 
     card.querySelector('.msn-toast-close')?.addEventListener('click', dismiss);
     card.querySelector('.msn-btn-visit')?.addEventListener('click', () => {
-      this.socket.emit('room:visit', { targetUserId: opts.userId });
+      this.socket.emit('room:visit', {
+        targetUserId: opts.userId,
+        inviteBypass: opts.kind === 'ROOM_INVITE' ? true : undefined,
+      });
       dismiss();
     });
     card.querySelector('.msn-btn-wave')?.addEventListener('click', (e) => {
@@ -5828,7 +6149,7 @@ class PocketCornerApp {
 
     setTimeout(() => {
       if (card.isConnected) dismiss();
-    }, 9500);
+    }, opts.kind === 'ROOM_INVITE' ? 12000 : 9500);
   }
 
   private showToast(type: 'info' | 'success' | 'warning' | 'error', message: string) {

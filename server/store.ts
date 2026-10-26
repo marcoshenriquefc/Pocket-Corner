@@ -814,6 +814,37 @@ export class PocketStore {
     };
   }
 
+  public toggleFavoriteFriend(
+    userId: string,
+    friendUserId: string
+  ): { ok: boolean; isFavorite: boolean; message: string } {
+    const user = this.db.users[userId];
+    const target = this.db.users[friendUserId];
+    if (!user || !target || userId === friendUserId) {
+      return { ok: false, isFavorite: false, message: 'Usuário não encontrado.' };
+    }
+
+    if (!user.favoriteFriends) user.favoriteFriends = [];
+    const exists = user.favoriteFriends.includes(friendUserId);
+    if (exists) {
+      user.favoriteFriends = user.favoriteFriends.filter((id) => id !== friendUserId);
+      this.saveDB();
+      return {
+        ok: true,
+        isFavorite: false,
+        message: `☆ ${target.displayName} removido dos Melhores Amigos.`,
+      };
+    } else {
+      user.favoriteFriends.push(friendUserId);
+      this.saveDB();
+      return {
+        ok: true,
+        isFavorite: true,
+        message: `⭐ ${target.displayName} fixado no topo como Melhor Amigo!`,
+      };
+    }
+  }
+
   public equipItem(userId: string, itemId: string): { ok: boolean; message: string } {
     const user = this.db.users[userId];
     if (!user) return { ok: false, message: 'Usuário não encontrado.' };

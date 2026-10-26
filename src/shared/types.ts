@@ -150,6 +150,7 @@ export interface UserProfile {
   petVariants?: Record<string, string>; // Raça escolhida por petId (ex: { pet_cat: 'siames', pet_dog: 'husky' })
   placedFurniture: PlacedFurnitureItem[]; // Móveis posicionados no cenário do usuário
   friends: string[]; // Array of ACCEPTED friend user_ids
+  favoriteFriends?: string[]; // Array of favorite friend user_ids (pinned at top)
   pendingIncomingFriends?: string[];
   pendingOutgoingFriends?: string[];
   friendProfiles?: Record<string, FriendProfileSummary>; // Metadados dos amigos e convites pendentes (mesmo offline)
@@ -326,6 +327,9 @@ export interface ClientToServerEvents {
   'friends:respond': (payload: { requesterUserId: string; accept: boolean }) => void;
   'friends:cancel': (payload: { targetUserId: string }) => void;
   'friends:wave': (payload: { targetUserId: string }) => void;
+  'friends:toggle_favorite': (payload: { friendUserId: string }) => void;
+  'friends:invite_to_room': (payload: { targetUserId: string }) => void;
+  'friends:lookup_nick': (payload: { query: string }) => void;
   'bot:summon_visit': () => void;
 }
 
@@ -352,6 +356,24 @@ export interface ServerToClientEvents {
     fromUsername: string;
     fromDisplayName: string;
     fromAvatarBody: string;
+  }) => void;
+  'friends:room_invite_alert': (payload: {
+    fromUserId: string;
+    fromUsername: string;
+    fromDisplayName: string;
+    fromAvatarBody: string;
+  }) => void;
+  'friends:lookup_result': (payload: {
+    query: string;
+    found: boolean;
+    userId?: string;
+    username?: string;
+    displayName?: string;
+    avatarBody?: string;
+    isOnline?: boolean;
+    isSelf?: boolean;
+    isAlreadyFriend?: boolean;
+    isPending?: boolean;
   }) => void;
 
   'room:player_moved': (payload: { userId: string; targetX: number; facing: 'left' | 'right' }) => void;

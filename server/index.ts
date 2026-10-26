@@ -1929,6 +1929,98 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     });
   });
 
+  socket.on('friends:toggle_favorite', ({ friendUserId }) => {
+    const res = store.toggleFavoriteFriend(userId, String(friendUserId || ''));
+    const u = store.getUserById(userId);
+    if (u) socket.emit('auth:profile', u);
+    socket.emit('system:toast', {
+      type: res.ok ? 'info' : 'error',
+      message: res.message,
+    });
+  });
+
+  socket.on('friends:invite_to_room', ({ targetUserId }) => {
+    const rl = store.consumeRateLimitToken(userId, 'friends:invite_to_room', 1, 4500);
+    if (!rl.allowed) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Aguarde alguns segundos antes de chamar novamente! 📣',
+      });
+      return;
+    }
+
+    const u = store.getUserById(userId);
+    const targetUser =
+      store.getUserById(targetUserId) || store.findUserByUsernameOrId(targetUserId);
+    if (!u || !targetUser || targetUser.id === userId) return;
+
+    const isAdmin = store.isUserAdmin(u);
+    if (!isAdmin && !store.areFriendsAccepted(userId, targetUser.id)) {
+      socket.emit('system:toast', {
+        type: 'warning',
+        message: 'Você só pode chamar amigos confirmados para a sua sala.',
+      });
+      return;
+    }
+
+    if (targetUser.id === BOT_USER_ID) {
+      moveUserToRoom(BOT_USER_ID, userId, true);
+      socket.emit('system:toast', {
+        type: 'success',
+        message: '🐦 Pipoca ouviu seu chamado e veio correndo visitar o seu cantinho!',
+      });
+      return;
+    }
+
+    emitToUser(targetUser.id, 'friends:room_invite_alert', {
+      fromUserId: u.id,
+      fromUsername: u.username,
+      fromDisplayName: u.displayName,
+      fromAvatarBody: u.equipped.avatar_body,
+    });
+
+    socket.emit('system:toast', {
+      type: 'success',
+      message: `📣 Você chamou ${targetUser.displayName} (@${targetUser.username}) para visitar o seu cantinho!`,
+    });
+  });
+
+  socket.on('friends:lookup_nick', ({ query }) => {
+    const raw = String(query || '').trim();
+    const clean = raw.replace(/^@+/, '').trim();
+    if (!clean) {
+      socket.emit('friends:lookup_result', { query: raw, found: false });
+      return;
+    }
+
+    const u = store.getUserById(userId);
+    const target = store.findUserByUsernameOrId(clean);
+    if (!target || !u) {
+      socket.emit('friends:lookup_result', { query: raw, found: false });
+      return;
+    }
+
+    const isSelf = target.id === userId;
+    const isAlreadyFriend = store.areFriendsAccepted(userId, target.id);
+    const isPending = Boolean(
+      u.pendingOutgoingFriends?.includes(target.id) ||
+        u.pendingIncomingFriends?.includes(target.id)
+    );
+
+    socket.emit('friends:lookup_result', {
+      query: raw,
+      found: true,
+      userId: target.id,
+      username: target.username,
+      displayName: target.displayName,
+      avatarBody: target.equipped.avatar_body,
+      isOnline: store.onlineUsers.has(target.id),
+      isSelf,
+      isAlreadyFriend,
+      isPending,
+    });
+  });
+
   // ------------------------------------------
   // Simulador de Visita do Bot Amigo (Pipoca)
   // ------------------------------------------
