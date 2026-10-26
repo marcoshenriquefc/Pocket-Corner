@@ -217,6 +217,7 @@ export interface RoomSnapshot {
   hostDisplayName: string;
   hostStatus: HostStatus;
   hostWorkStatus?: string;
+  hostOffline?: boolean; // True quando o dono do cantinho está offline (não deve aparecer na sala)
   hostAwayVisiting?: boolean; // True quando o dono da sala saiu para visitar outra pessoa ("Volto já")
   hostVisitingDisplayName?: string; // Nome de quem o dono da sala foi visitar
   doorPermission: DoorPermission;
@@ -257,6 +258,14 @@ export interface RoomUserJoinedPayload {
     throwable: string;
     deskDrop: string;
   };
+}
+
+export interface RoomUserLeftPayload {
+  userId: string;
+  username: string;
+  displayName: string;
+  x: number;
+  reason: 'OFFLINE' | 'LEFT';
 }
 
 // ==========================================
@@ -338,6 +347,7 @@ export interface ServerToClientEvents {
   'room:state': (snapshot: RoomSnapshot) => void;
   'directory:online': (entries: OnlineDirectoryEntry[]) => void;
   'room:user_joined': (payload: RoomUserJoinedPayload) => void;
+  'room:user_left': (payload: RoomUserLeftPayload) => void;
   'friends:invite_alert': (payload: {
     kind: 'INCOMING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
     fromUserId: string;

@@ -99,7 +99,16 @@ function moveUserToRoom(userId: string, targetHostId: string, triggerSpawnFx = t
   if (prevHostId && prevHostId !== targetHostId) {
     const prevRoom = store.rooms.get(prevHostId);
     if (prevRoom) {
+      const prevPlayer = prevRoom.players.get(userId);
+      const lastX = prevPlayer?.x ?? 120;
       prevRoom.players.delete(userId);
+      io.to(`room:${prevHostId}`).emit('room:user_left', {
+        userId: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        x: lastX,
+        reason: 'LEFT',
+      });
       broadcastRoomState(prevHostId);
     }
   }
@@ -868,17 +877,21 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
 
     const currentVisitor = store.getUserById(userId) || user;
     const isAdminVisitor = store.isUserAdmin(currentVisitor);
+    const isTargetHostOnline =
+      store.onlineUsers.has(targetHost.id) || targetHost.id === BOT_USER_ID;
 
     // 🛡️ Administrador pode visitar toda e qualquer sala (sem precisar de amizade, sem bloqueio de DND, Toc-Toc ou lotação)
     if (isAdminVisitor) {
       const currentTargetHostRoom = store.userCurrentRoom.get(targetHost.id) || targetHost.id;
-      const isTargetHostAway = currentTargetHostRoom !== targetHost.id;
+      const isTargetHostAway = isTargetHostOnline && currentTargetHostRoom !== targetHost.id;
       moveUserToRoom(userId, targetHost.id, true);
       socket.emit('system:toast', {
         type: 'success',
-        message: isTargetHostAway
-          ? `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username}) — Host saiu para visitar outra sala.`
-          : `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username})!`,
+        message: !isTargetHostOnline
+          ? `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username}) — Jogador está offline no momento.`
+          : isTargetHostAway
+            ? `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username}) — Host saiu para visitar outra sala.`
+            : `🛡️ [Admin] Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username})!`,
       });
       return;
     }
@@ -923,8 +936,18 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
       }
     }
 
-    // 6.2. Verifica se o status do Host não está como DND
-    if (targetHost.hostStatus === 'DND') {
+    // Se o amigo estiver offline, permite visitar o cantinho dele (o personagem dele não aparece e fica a placa de Offline)
+    if (!isTargetHostOnline) {
+      moveUserToRoom(userId, targetHost.id, true);
+      socket.emit('system:toast', {
+        type: 'info',
+        message: `💤 Você entrou no cantinho de ${targetHost.displayName} (@${targetHost.username}) — está offline no momento.`,
+      });
+      return;
+    }
+
+    // 6.2. Verifica se o status do Host não está como DND (a menos que tenha sido chamado via convite direto)
+    if (targetHost.hostStatus === 'DND' && !inviteBypass) {
       socket.emit('system:toast', {
         type: 'warning',
         message: `🔒 ${targetHost.displayName} está em Não Perturbe (DND). Você pode deixar um Presente AFK na caixa de correio!`,
@@ -945,7 +968,12 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     const currentTargetHostRoom = store.userCurrentRoom.get(targetHost.id) || targetHost.id;
     const isTargetHostAway = currentTargetHostRoom !== targetHost.id;
 
-    if (targetHost.doorPermission === 'OPEN' || targetHost.id === BOT_USER_ID || isTargetHostAway) {
+    if (
+      inviteBypass ||
+      targetHost.doorPermission === 'OPEN' ||
+      targetHost.id === BOT_USER_ID ||
+      isTargetHostAway
+    ) {
       moveUserToRoom(userId, targetHost.id, !isTargetHostAway);
       socket.emit('system:toast', {
         type: isTargetHostAway ? 'info' : 'success',
@@ -2080,12 +2108,37 @@ io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
         userSockets.delete(userId);
         store.onlineUsers.delete(userId);
         store.sessionCosmeticsCache.delete(userId);
-        const currentHostId = store.userCurrentRoom.get(userId);
+
+        const u = store.getUserById(userId) || user;
+        const currentHostId = store.userCurrentRoom.get(userId) || userId;
+
         if (currentHostId && currentHostId !== userId) {
           const r = store.rooms.get(currentHostId);
+          const leavingPlayer = r?.players.get(userId);
+          const lastX = leavingPlayer?.x ?? 120;
           r?.players.delete(userId);
+          io.to(`room:${currentHostId}`).emit('room:user_left', {
+            userId,
+            username: u.username,
+            displayName: u.displayName,
+            x: lastX,
+            reason: 'OFFLINE',
+          });
           broadcastRoomState(currentHostId);
         }
+
+        const ownRoom = store.rooms.get(userId);
+        const ownPlayer = ownRoom?.players.get(userId);
+        const ownLastX = ownPlayer?.x ?? 110;
+        ownRoom?.players.delete(userId);
+        io.to(`room:${userId}`).emit('room:user_left', {
+          userId,
+          username: u.username,
+          displayName: u.displayName,
+          x: ownLastX,
+          reason: 'OFFLINE',
+        });
+
         store.userCurrentRoom.set(userId, userId);
         store.ensureRoom(userId);
         broadcastRoomState(userId);

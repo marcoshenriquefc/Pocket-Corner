@@ -1338,6 +1338,22 @@ class PocketCornerApp {
       );
     });
 
+    this.socket.on('room:user_left', (payload) => {
+      if (payload.userId === this.profile?.id) return;
+      this.renderer.triggerPlayerSmokeVanish(
+        payload.userId,
+        payload.x,
+        payload.displayName,
+        payload.reason
+      );
+      if (payload.reason === 'OFFLINE') {
+        this.showToast(
+          'info',
+          `💨 ${payload.displayName} (@${payload.username}) ficou offline!`
+        );
+      }
+    });
+
     this.socket.on('directory:online', (entries) => {
       this.directory = entries;
 
@@ -2104,10 +2120,11 @@ class PocketCornerApp {
     if (!this.profile) return;
     const isMyRoom = !this.room || this.room.hostUserId === this.profile.id;
     const isVideoPiP = windowBridge.videoPipActive;
-    const isHostAway = Boolean(!isMyRoom && this.room?.hostAwayVisiting);
+    const isHostOffline = Boolean(!isMyRoom && this.room?.hostOffline);
+    const isHostAway = Boolean(!isMyRoom && !isHostOffline && this.room?.hostAwayVisiting);
     const playersCount = this.room?.players.length || 0;
-    const isCoWorking = !isHostAway && playersCount >= 2;
-    const canCallAttention = !isMyRoom || playersCount >= 2;
+    const isCoWorking = !isHostOffline && !isHostAway && playersCount >= 2;
+    const canCallAttention = (!isMyRoom && !isHostOffline) || playersCount >= 2;
     const pendingInCount = this.profile.pendingIncomingFriends?.length || 0;
     const pendingOutCount = this.profile.pendingOutgoingFriends?.length || 0;
     const totalPendingFriends = pendingInCount + pendingOutCount;
@@ -2122,14 +2139,18 @@ class PocketCornerApp {
         <span class="room-pill" title="${
           isMyRoom
             ? `Meu Cantinho (${playersCount || 1}/5 pessoas na sala)`
-            : `Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')}`
+            : isHostOffline
+              ? `Cantinho de ${this.escapeHtml(this.room?.hostDisplayName || '')} — Offline no momento`
+              : `Sala de ${this.escapeHtml(this.room?.hostDisplayName || '')}`
         }">
           ${
             isMyRoom
               ? `🏠 Meu Cantinho (${playersCount || 1}/5)`
-              : isHostAway
-                ? `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (🪧 Volto já)`
-                : `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
+              : isHostOffline
+                ? `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (💤 Offline)`
+                : isHostAway
+                  ? `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (🪧 Volto já)`
+                  : `🚀 ${this.escapeHtml(this.room?.hostDisplayName || '')} (${playersCount}/5)`
           }
         </span>
 

@@ -217,6 +217,27 @@ interface Particle {
   life: number;
 }
 
+interface SmokeCloudPuff {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  growRate: number;
+  color: string;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
+interface SmokeVanishFloatingText {
+  x: number;
+  y: number;
+  text: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface FocusCanvasOverlayState {
   active: boolean;
   phase: 'FOCUS' | 'BREAK';
@@ -270,8 +291,11 @@ export class PixelCanvasRenderer {
   private nudgeShakeUntil = 0;
   private nudgeBanner: { text: string; expiresAt: number } | null = null;
   private seenSpawnFx = new Set<string>();
+  private recentSmokeVanishByUser = new Map<string, number>();
   private projectiles: ActiveProjectile[] = [];
   private particles: Particle[] = [];
+  private smokeClouds: SmokeCloudPuff[] = [];
+  private smokeTexts: SmokeVanishFloatingText[] = [];
 
   private hoveredDropId: string | null = null;
   private hoveredPlayerId: string | null = null;
@@ -349,7 +373,80 @@ export class PixelCanvasRenderer {
     return this.editFurnitureMode;
   }
 
+  /**
+   * 💨 Dispara uma nuvem de fumaça quando um amigo fica offline (ou sai da sala) e o personagem some!
+   */
+  public triggerPlayerSmokeVanish(
+    userId: string,
+    fallbackX?: number,
+    displayName?: string,
+    reason: 'OFFLINE' | 'LEFT' = 'OFFLINE'
+  ) {
+    const now = Date.now();
+    const lastAt = this.recentSmokeVanishByUser.get(userId) || 0;
+    if (now - lastAt < 1200) return;
+    this.recentSmokeVanishByUser.set(userId, now);
+
+    const phys = this.physics.get(userId);
+    const prevPlayer = this.room?.players.find((p) => p.userId === userId);
+    const vanishX = phys?.renderX ?? prevPlayer?.x ?? fallbackX ?? 120;
+    const vanishY = PixelCanvasRenderer.FLOOR_Y + (phys?.renderY ?? 0) - 18;
+    const name = displayName || prevPlayer?.displayName || 'Amigo';
+
+    this.physics.delete(userId);
+    if (this.room) {
+      this.room.players = this.room.players.filter((p) => p.userId !== userId);
+    }
+
+    this.spawnSmokePuff(
+      vanishX,
+      vanishY,
+      reason === 'OFFLINE' ? `💨 ${name} ficou offline` : `💨 ${name} saiu`
+    );
+  }
+
+  public spawnSmokePuff(x: number, y = PixelCanvasRenderer.FLOOR_Y - 18, floatingText?: string) {
+    soundEngine.playSmokePoof();
+
+    const smokePalette = ['#ffffff', '#f8fafc', '#e2e8f0', '#cbd5e1', '#94a3b8'];
+    // Camada densa central + nuvens laterais subindo
+    for (let i = 0; i < 22; i++) {
+      const angle = (Math.PI * 2 * i) / 22 + (Math.random() - 0.5) * 0.4;
+      const dist = Math.random() * 8;
+      const speed = 0.25 + Math.random() * 1.15;
+      const maxLife = 36 + Math.floor(Math.random() * 24);
+      this.smokeClouds.push({
+        x: x + Math.cos(angle) * dist,
+        y: y + (Math.random() - 0.5) * 14,
+        vx: Math.cos(angle) * speed * 0.85,
+        vy: -0.35 - Math.random() * 0.85,
+        radius: 4 + Math.random() * 5,
+        growRate: 0.14 + Math.random() * 0.12,
+        color: smokePalette[i % smokePalette.length],
+        alpha: 0.92,
+        life: maxLife,
+        maxLife,
+      });
+    }
+
+    // Partículas extras de poeira mágica / faíscas cinza-claro
+    this.spawnBurst(x, y, '#e2e8f0', 14);
+
+    if (floatingText) {
+      this.smokeTexts.push({
+        x: Math.max(48, Math.min(PixelCanvasRenderer.WIDTH - 48, x)),
+        y: y - 16,
+        text: floatingText,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 2600,
+      });
+    }
+  }
+
   public updateRoom(snapshot: RoomSnapshot) {
+    const prevRoomId = this.room?.roomId;
+    const prevPlayers = this.room?.players || [];
+
     // If currently dragging a furniture item locally, preserve its smooth local X
     if (this.draggingFurnitureId && this.room?.placedFurniture && snapshot.placedFurniture) {
       const localFurn = this.room.placedFurniture.find(
@@ -389,6 +486,23 @@ export class PixelCanvasRenderer {
 
     for (const oldId of Array.from(this.physics.keys())) {
       if (!currentIds.has(oldId)) {
+        if (prevRoomId && prevRoomId === snapshot.roomId && oldId !== this.myUserId) {
+          const oldPhys = this.physics.get(oldId);
+          const oldP = prevPlayers.find((pl) => pl.userId === oldId);
+          const now = Date.now();
+          const lastAt = this.recentSmokeVanishByUser.get(oldId) || 0;
+          if (now - lastAt >= 1200) {
+            this.recentSmokeVanishByUser.set(oldId, now);
+            const isHostGoingOffline = oldId === snapshot.hostUserId && snapshot.hostOffline;
+            this.spawnSmokePuff(
+              oldPhys?.renderX ?? oldP?.x ?? 120,
+              PixelCanvasRenderer.FLOOR_Y + (oldPhys?.renderY ?? 0) - 18,
+              isHostGoingOffline
+                ? `💨 ${oldP?.displayName || snapshot.hostDisplayName} ficou offline`
+                : `💨 ${oldP?.displayName || 'Amigo'} saiu`
+            );
+          }
+        }
         this.physics.delete(oldId);
       }
     }
@@ -963,6 +1077,27 @@ export class PixelCanvasRenderer {
         this.particles.splice(i, 1);
       }
     }
+
+    for (let i = this.smokeClouds.length - 1; i >= 0; i--) {
+      const sc = this.smokeClouds[i];
+      sc.x += sc.vx;
+      sc.y += sc.vy;
+      sc.vx *= 0.96;
+      sc.vy *= 0.98;
+      sc.radius += sc.growRate;
+      sc.life--;
+      sc.alpha = Math.max(0, (sc.life / sc.maxLife) * 0.88);
+      if (sc.life <= 0) {
+        this.smokeClouds.splice(i, 1);
+      }
+    }
+
+    const nowMs = Date.now();
+    for (let i = this.smokeTexts.length - 1; i >= 0; i--) {
+      if (this.smokeTexts[i].expiresAt <= nowMs) {
+        this.smokeTexts.splice(i, 1);
+      }
+    }
   }
 
   private render() {
@@ -1035,36 +1170,49 @@ export class PixelCanvasRenderer {
       this.drawKnockPeeker(ctx, this.room.pendingKnocks[0], W, floorY);
     }
 
-    if (this.room.hostAwayVisiting) {
-      // Se o amigo saiu para visitar outra pessoa, a sala dele fica vazia e exibe a placa "Volto já"
+    // Se o dono do cantinho estiver offline, exibe a placa/mensagem na sala de que está Offline
+    // (o personagem offline nunca aparece em this.room.players)
+    if (this.room.hostOffline) {
+      this.drawHostOfflineNotice(ctx, W, floorY);
+    } else if (this.room.hostAwayVisiting) {
+      // Se o amigo saiu para visitar outra pessoa, exibe a placa "Volto já"
       this.drawHostAwayNotice(ctx, W, floorY);
-    } else {
-      // Draw Players (Host + up to 4 Visitors)
-      for (const p of this.room.players) {
-        this.drawPlayer(ctx, p, floorY);
-      }
+    }
 
-      // Draw Active Projectiles (Throwables)
-      for (const proj of this.projectiles) {
-        this.drawProjectile(ctx, proj, floorY);
+    // Draw Online Players present in the room (offline/away host is already excluded)
+    for (const p of this.room.players) {
+      if ((this.room.hostOffline || this.room.hostAwayVisiting) && p.userId === this.room.hostUserId) {
+        continue;
       }
+      this.drawPlayer(ctx, p, floorY);
+    }
 
-      // Draw Floating Chat Bubbles above avatars (max 80 chars, 6s duration)
-      const now = Date.now();
-      for (const p of this.room.players) {
-        const phys = this.physics.get(p.userId);
-        const px = phys ? phys.renderX : p.x;
-        const py = floorY + (phys ? phys.renderY : 0) - 52;
-        if (p.chatBubble && p.chatBubble.expiresAt > now) {
-          this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
-        } else {
-          const thought = this.ambientThoughts.get(p.userId);
-          if (thought && thought.expiresAt > now) {
-            this.drawAmbientThoughtBubble(ctx, px, py + 4, thought.text, thought.expiresAt - now);
-          }
+    // Draw Active Projectiles (Throwables)
+    for (const proj of this.projectiles) {
+      this.drawProjectile(ctx, proj, floorY);
+    }
+
+    // Draw Floating Chat Bubbles above avatars (max 80 chars, 6s duration)
+    const now = Date.now();
+    for (const p of this.room.players) {
+      if ((this.room.hostOffline || this.room.hostAwayVisiting) && p.userId === this.room.hostUserId) {
+        continue;
+      }
+      const phys = this.physics.get(p.userId);
+      const px = phys ? phys.renderX : p.x;
+      const py = floorY + (phys ? phys.renderY : 0) - 52;
+      if (p.chatBubble && p.chatBubble.expiresAt > now) {
+        this.drawChatBubble(ctx, px, py, p.chatBubble.text, p.chatBubble.skinId);
+      } else {
+        const thought = this.ambientThoughts.get(p.userId);
+        if (thought && thought.expiresAt > now) {
+          this.drawAmbientThoughtBubble(ctx, px, py + 4, thought.text, thought.expiresAt - now);
         }
       }
     }
+
+    // Draw Smoke Clouds (fumaça quando amigo fica offline e some!)
+    this.drawSmokeClouds(ctx);
 
     // Draw Particles
     for (const pt of this.particles) {
@@ -1083,7 +1231,7 @@ export class PixelCanvasRenderer {
     ctx.restore();
 
     // Screen-Space HUD (visível inclusive dentro do PiP Flutuante via captureStream)
-    if (!this.room.hostAwayVisiting && (this.room.players.length || 0) >= 2) {
+    if (!this.room.hostOffline && !this.room.hostAwayVisiting && (this.room.players.length || 0) >= 2) {
       this.drawCoWorkingHud(ctx);
     }
     if (this.focusOverlay && this.focusOverlay.active) {
@@ -1092,6 +1240,124 @@ export class PixelCanvasRenderer {
     if (this.nudgeBanner && this.nudgeBanner.expiresAt > nowMs) {
       this.drawMsnNudgeHud(ctx, W, this.nudgeBanner.text);
     }
+  }
+
+  /**
+   * 💨 Desenha as nuvens de fumaça em pixel-art quando um amigo fica offline e desaparece
+   */
+  private drawSmokeClouds(ctx: CanvasRenderingContext2D) {
+    if (this.smokeClouds.length > 0) {
+      ctx.save();
+      for (const sc of this.smokeClouds) {
+        ctx.globalAlpha = sc.alpha;
+        ctx.fillStyle = sc.color;
+        const r = Math.max(2, Math.round(sc.radius));
+        const cx = Math.round(sc.x);
+        const cy = Math.round(sc.y);
+        // Nuvem arredondada em blocos pixel-art (cruz sobreposta)
+        ctx.fillRect(cx - r, cy - Math.round(r * 0.65), r * 2, Math.round(r * 1.3));
+        ctx.fillRect(cx - Math.round(r * 0.65), cy - r, Math.round(r * 1.3), r * 2);
+      }
+      ctx.restore();
+    }
+
+    if (this.smokeTexts.length > 0) {
+      const now = Date.now();
+      ctx.save();
+      ctx.font = 'bold 7.5px monospace';
+      ctx.textAlign = 'center';
+      for (const st of this.smokeTexts) {
+        const elapsed = now - st.createdAt;
+        const remaining = st.expiresAt - now;
+        if (remaining <= 0) continue;
+        const floatOffset = Math.min(22, elapsed * 0.01);
+        const alpha = Math.min(1, remaining / 550);
+        const drawX = Math.round(st.x);
+        const drawY = Math.round(st.y - floatOffset);
+
+        ctx.globalAlpha = Math.max(0, alpha);
+        const tw = ctx.measureText(st.text).width;
+        const bw = Math.round(tw + 10);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fillRect(drawX - Math.round(bw / 2), drawY - 10, bw, 13);
+        ctx.strokeStyle = 'rgba(203, 213, 225, 0.65)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(drawX - Math.round(bw / 2) + 0.5, drawY - 9.5, bw - 1, 12);
+        ctx.fillStyle = '#f1f5f9';
+        ctx.fillText(st.text, drawX, drawY - 1);
+      }
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Exibe a placa e mensagem na sala quando você visita o cantinho de um amigo que está Offline.
+   */
+  private drawHostOfflineNotice(ctx: CanvasRenderingContext2D, W: number, floorY: number) {
+    if (!this.room) return;
+    const cx = Math.round(W / 2);
+    const bob = Math.round(Math.sin(Date.now() * 0.0035) * 1.5);
+
+    ctx.save();
+
+    // 1. Pequeno cavalete de madeira no centro do chão da sala
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(cx - 14, floorY - 3, 28, 3);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(cx - 9, floorY - 16, 3, 14);
+    ctx.fillRect(cx + 6, floorY - 16, 3, 14);
+
+    // 2. Placa centralizada informando que o personagem está Offline
+    const hostName = (this.room.hostDisplayName || 'Amigo').slice(0, 18);
+    const hostTag = `@${(this.room.hostUsername || 'amigo').slice(0, 14)}`;
+    const title = `💤 ${hostName} está Offline`;
+    const subtitle = `${hostTag} não está no cantinho agora`;
+    const hint = 'Deixe um Presente 📫 na sala para quando voltar!';
+
+    ctx.font = 'bold 8px monospace';
+    const subW = Math.max(ctx.measureText(subtitle).width, ctx.measureText(hint).width);
+    const titleW = ctx.measureText(title).width + 24;
+    const boxW = Math.max(168, Math.round(Math.max(subW, titleW) + 22));
+    const boxH = 48;
+    const boxX = Math.round(cx - boxW / 2);
+    const boxY = floorY - 64 + bob;
+
+    // Sombra da placa
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(boxX + 2, boxY + 2, boxW, boxH);
+
+    // Moldura de ardósia / azul-noturno
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(boxX - 1, boxY - 1, boxW + 2, 1);
+
+    // Fundo escuro aconchegante da placa
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+
+    // Pinos nos cantos da placa
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(boxX + 3, boxY + 3, 2, 2);
+    ctx.fillRect(boxX + boxW - 5, boxY + 3, 2, 2);
+
+    // Texto principal
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, cx, boxY + 15);
+
+    // Subtítulo
+    ctx.font = 'bold 7.5px monospace';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(subtitle, cx, boxY + 28);
+
+    // Dica de presente AFK
+    ctx.font = 'bold 7px monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(hint, cx, boxY + 41);
+
+    ctx.restore();
   }
 
   /**

@@ -658,6 +658,39 @@ class SoundEngine {
       this.playTone(1046.5, 0.24, 'triangle', 0.12);
     }, 95);
   }
+
+  /**
+   * 💨 Som suave de fumaça ("poof!") quando um amigo fica offline e some da sala
+   */
+  public playSmokePoof() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 1. Sopro de fumaça (ruído rosa filtrado com envelope macio)
+    const noiseBuf = this.createNoiseBuffer(ctx, 0.28, 'pink');
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(920, now);
+    filter.frequency.exponentialRampToValueAtTime(240, now + 0.26);
+    filter.Q.value = 1.2;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.27);
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(now);
+
+    // 2. "Poof" grave suave descendente
+    this.playTone(230, 0.2, 'sine', 0.09, 85);
+  }
 }
 
 export const soundEngine = new SoundEngine();

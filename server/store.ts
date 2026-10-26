@@ -1624,10 +1624,11 @@ export class PocketStore {
       this.rooms.set(hostUserId, room);
     }
 
+    const isHostOnline = this.onlineUsers.has(hostUserId) || hostUserId === BOT_USER_ID;
     const currentHostRoom = this.userCurrentRoom.get(hostUserId);
     const isAwayVisiting = Boolean(currentHostRoom && currentHostRoom !== hostUserId);
 
-    if (hostUser && !isAwayVisiting && !room.players.has(hostUserId)) {
+    if (hostUser && isHostOnline && !isAwayVisiting && !room.players.has(hostUserId)) {
       const activities: IdleActivity[] = ['COFFEE', 'TYPING', 'SLEEPING', 'FISHING'];
       room.players.set(hostUserId, {
         userId: hostUser.id,
@@ -1644,7 +1645,7 @@ export class PocketStore {
         isBot: hostUser.id === BOT_USER_ID,
       });
       this.userCurrentRoom.set(hostUserId, hostUserId);
-    } else if (isAwayVisiting && room.players.has(hostUserId)) {
+    } else if ((!isHostOnline || isAwayVisiting) && room.players.has(hostUserId)) {
       room.players.delete(hostUserId);
     }
 
@@ -1699,13 +1700,20 @@ export class PocketStore {
     const room = this.ensureRoom(hostUserId);
     const hostUser = this.db.users[hostUserId];
     const verifiedHostEquip = this.getVerifiedEquipped(hostUserId);
+    const hostOffline = !this.onlineUsers.has(hostUserId) && hostUserId !== BOT_USER_ID;
     const currentHostRoom = this.userCurrentRoom.get(hostUserId);
-    const hostAwayVisiting = Boolean(currentHostRoom && currentHostRoom !== hostUserId);
+    const hostAwayVisiting = Boolean(
+      !hostOffline && currentHostRoom && currentHostRoom !== hostUserId
+    );
     const visitingTarget =
       hostAwayVisiting && currentHostRoom ? this.db.users[currentHostRoom] : undefined;
 
     const now = Date.now();
-    for (const p of room.players.values()) {
+    for (const [pid, p] of Array.from(room.players.entries())) {
+      if (!this.onlineUsers.has(pid) && pid !== BOT_USER_ID && !p.isBot) {
+        room.players.delete(pid);
+        continue;
+      }
       const uRef = this.db.users[p.userId];
       if (uRef) {
         p.workStatus = uRef.workStatus || '';
@@ -1738,6 +1746,10 @@ export class PocketStore {
       this.saveDB();
     }
 
+    const activePlayers = Array.from(room.players.values()).filter((p) =>
+      hostOffline || hostAwayVisiting ? p.userId !== hostUserId : true
+    );
+
     return {
       roomId: `room:${hostUserId}`,
       hostUserId,
@@ -1745,12 +1757,13 @@ export class PocketStore {
       hostDisplayName: hostUser?.displayName || 'Host',
       hostStatus: hostUser?.hostStatus || 'IDLE',
       hostWorkStatus: hostUser?.workStatus || '',
+      hostOffline,
       hostAwayVisiting,
       hostVisitingDisplayName: visitingTarget?.displayName,
       doorPermission: hostUser?.doorPermission || 'OPEN',
       roomSkinId: verifiedHostEquip.room_skin,
       placedFurniture: hostUser?.placedFurniture || [],
-      players: hostAwayVisiting ? [] : Array.from(room.players.values()),
+      players: activePlayers,
       deskDrops: this.getDeskDrops(hostUserId),
       pendingKnocks: Array.from(room.pendingKnocks.values()),
       maxVisitors: 4,
